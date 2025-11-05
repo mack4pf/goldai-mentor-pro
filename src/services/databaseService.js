@@ -1,7 +1,7 @@
 // src/services/databaseService.js
 
 // 🚨 CRITICAL: This line initializes Firebase and gets the 'db' connection
-const { db } = require('../../firebaseConfig'); 
+const { db } = require('../firebaseConfig'); 
 
 // Collection names
 const USER_COLLECTION = 'users';
