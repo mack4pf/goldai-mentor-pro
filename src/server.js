@@ -1,6 +1,3 @@
-// server.js
-
-// Load environment variables
 require('dotenv').config();
 
 // Import dependencies
@@ -10,15 +7,11 @@ const express = require('express');
 // Import our services
 const authService = require('./services/authService');
 const databaseService = require('./services/databaseService');
-
-// Import market data services - Fixed paths
-// const tradingViewService = require('./services/market/tradingViewService'); // DELETED
 const goldPriceService = require('./services/market/goldPriceService');
 const newsService = require('./services/market/newsService');
-
 const openaiService = require('./services/openaiService'); 
 
-// Initialize Express app for health checks
+// Initialize Express app
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -36,16 +29,9 @@ app.listen(PORT, () => {
   console.log(`🟢 Health check server running on port ${PORT}`);
 });
 
-// Initialize Telegram Bot
+// Initialize Telegram Bot WITH POLLING (works on free tier)
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { 
-  polling: true,
-  request: {
-    timeout: 60000, // Increase timeout to 60 seconds
-    agentOptions: {
-      keepAlive: true,
-      family: 4 // Use IPv4
-    }
-  }
+  polling: true
 });
 
 // Bot startup message
@@ -60,10 +46,6 @@ bot.on('error', (error) => {
 bot.on('polling_error', (error) => {
   console.error('❌ Polling error:', error);
 });
-
-// ==================== NEW RATE LIMITING LOGIC (COMMENTED OUT) ====================
-
-// Rate limiting logic remains commented out
 
 // ==================== TELEGRAM KEYBOARDS ====================
 
@@ -874,6 +856,6 @@ bot.onText(/\/admin users/, async (msg) => {
 });
 
 console.log('✅ GoldAI Mentor Pro Bot started successfully!');
-console.log('🤖 Bot is now listening for messages...');
+console.log('🤖 Bot is now listening for messages via Webhook...');
 console.log('🎯 Telegram quick buttons enabled for easy navigation');
 console.log('👑 Admin commands available');
