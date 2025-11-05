@@ -1,0 +1,39 @@
+{
+  "name": "goldai-mentor-pro",
+  "version": "1.0.0",
+  "type": "commonjs",
+  "description": "AI-Powered Gold Trading Mentor Bot",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js  --ignore data/ --ignore *.json",
+    "test": "echo \"No tests yet\" && exit 0"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "trading",
+    "gold",
+    "ai"
+  ],
+  "author": "Mack4pf",
+  "license": "MIT",
+  "dependencies": {
+    "@google/genai": "^1.28.0",
+    "@google/generative-ai": "^0.24.1",
+    "axios": "^1.13.1",
+    "cheerio": "^1.1.2",
+    "cocobase": "^1.0.3",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "firebase-admin": "^13.5.0",
+    "mongodb": "^6.20.0",
+    "mongoose": "^8.19.3",
+    "node-cron": "^4.2.1",
+    "node-telegram-bot-api": "^0.66.0",
+    "openai": "^6.7.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}
