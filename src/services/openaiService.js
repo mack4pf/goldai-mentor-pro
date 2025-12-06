@@ -1,5 +1,4 @@
 
-
 const axios = require('axios');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
@@ -31,11 +30,10 @@ class OpenAIService {
   async generateTradingSignal(timeframe = '1h', userContext = null, balanceCategory = 'default') {
     try {
       console.log(`🟡 Generating signal via AI Core for ${timeframe} timeframe with balance tier: ${balanceCategory}...`);
-      
+
       // 1. ORCHESTRATION: Fetching data from primary services
-      // CRITICAL FIX: The getValidatedGoldPrice method is defined below.
       const [goldPriceData, newsData] = await Promise.all([
-        this.getValidatedGoldPrice(), 
+        this.getValidatedGoldPrice(),
         newsService.getGoldNews()
       ]);
 
@@ -44,18 +42,18 @@ class OpenAIService {
       if (!priceAccuracy.isAccurate) {
         console.warn(`⚠️ Price accuracy issue: ${priceAccuracy.message}`);
       }
-      
+
       const marketData = {
         goldPrice: { ...goldPriceData, accuracy: priceAccuracy },
         news: newsData,
-        marketStructure: this.getNeutralMarketStructure(), 
+        marketStructure: this.getNeutralMarketStructure(),
         priceAccuracy: priceAccuracy,
         timestamp: new Date().toISOString()
       };
 
       // 3. PRE-AI VALIDATION
       const preAnalysis = await this.preSignalValidation(marketData, timeframe);
-      
+
       if (!preAnalysis.shouldProceed) {
         console.log(`🟡 Signal rejected in pre-validation: ${preAnalysis.reason}`);
         // SAFETY: Return safe HOLD signal
@@ -80,7 +78,7 @@ class OpenAIService {
 
       console.log(`✅ Professional signal generated: ${aiSignal.signal} (${aiSignal.confidence}%) - Quality: ${comprehensiveSignal.signalQuality}/10`);
       return comprehensiveSignal;
-      
+
     } catch (error) {
       console.error('❌ CRITICAL SIGNAL FAILURE:', error.message);
       // SAFETY: Return safe FALLBACK signal on critical failure
@@ -94,32 +92,32 @@ class OpenAIService {
 
   async callAIProviders(prompt, marketData, timeframe, userContext) {
     if (this.gemini) {
-        try {
-            console.log('🟡 Trying Gemini (Primary)...');
-            const signal = await this.callGemini(prompt, marketData, timeframe, userContext);
-            console.log('✅ Gemini succeeded!');
-            return signal;
-        } catch (geminiError) {
-            console.error('❌ Gemini (Primary) failed:', geminiError.message);
-            console.log('⚠️ Failing over to DeepSeek...');
-        }
+      try {
+        console.log('🟡 Trying Gemini (Primary)...');
+        const signal = await this.callGemini(prompt, marketData, timeframe, userContext);
+        console.log('✅ Gemini succeeded!');
+        return signal;
+      } catch (geminiError) {
+        console.error('❌ Gemini (Primary) failed:', geminiError.message);
+        console.log('⚠️ Failing over to DeepSeek...');
+      }
     } else {
-        console.log('🟡 Gemini skipped (no API key). Trying DeepSeek...');
+      console.log('🟡 Gemini skipped (no API key). Trying DeepSeek...');
     }
 
     if (this.deepseek.apiKey) {
-        try {
-            console.log('🟡 Trying DeepSeek (Fallback)...');
-            const signal = await this.callDeepSeek(prompt, marketData, timeframe, userContext);
-            console.log('✅ DeepSeek (Fallback) succeeded!');
-            return signal;
-        } catch (deepSeekError) {
-            console.error('❌ DeepSeek (Fallback) failed:', deepSeekError.message);
-            // CRITICAL: Throw final error if both fail
-            throw new Error(`AI Signal Generation failed. DeepSeek (404/Auth?) Error: ${deepSeekError.message}`);
-        }
+      try {
+        console.log('🟡 Trying DeepSeek (Fallback)...');
+        const signal = await this.callDeepSeek(prompt, marketData, timeframe, userContext);
+        console.log('✅ DeepSeek (Fallback) succeeded!');
+        return signal;
+      } catch (deepSeekError) {
+        console.error('❌ DeepSeek (Fallback) failed:', deepSeekError.message);
+        // CRITICAL: Throw final error if both fail
+        throw new Error(`AI Signal Generation failed. DeepSeek (404/Auth?) Error: ${deepSeekError.message}`);
+      }
     }
-    
+
     throw new Error('AI Signal Generation failed: No fallback AI is configured or both services failed.');
   }
 
@@ -160,8 +158,8 @@ class OpenAIService {
     if (!this.gemini) throw new Error('Gemini API key not configured or SDK not initialized');
 
     const model = this.gemini.getGenerativeModel({
-       model: "gemini-2.5-flash", 
-       systemInstruction: this.getSystemPrompt() 
+      model: "gemini-2.5-flash-lite",
+      systemInstruction: this.getSystemPrompt()
     });
 
     const result = await model.generateContent(prompt);
@@ -177,8 +175,8 @@ class OpenAIService {
   getSystemPrompt() {
     // CRITICAL UPDATE: Aggressively mandates BUY or SELL.
     return `You are a professional Gold (XAU/USD) trading assistant integrated inside a Telegram signal bot.
-Your role is to act as the primary analyst, replacing external technical analysis tools. You MUST perform deep chart analysis, identify indicators (RSI, S/R, MA), and apply the user's defined trading strategy based on their chosen risk/balance tier.
-Your sole purpose is to analyze the provided market data and output a trading signal in the specified format, ensuring the signal matches the designated Strategy ID.
+Your role is to act as the primary analyst. You must apply the user's defined trading strategy based on their chosen risk/balance tier.
+Your sole purpose is to analyze the PROVIDED market data and output a trading signal in the specified format, ensuring the signal matches the designated Strategy ID.
 
 ---
 🔑 Professional XAUUSD Gold Trading Prompt
@@ -192,7 +190,7 @@ Trader Profile: 14+ Year Veteran successfully scaling accounts from $10 to $100,
 | **MACRO (50k+)** | Wealth Preservation ($50,000 - $100,000+ accounts). Low leverage, Long-term holds. | Initial position taken based on strong macro-economic conviction (e.g., long due to inflation outlook). Scale-in (add to the position) only during deep corrections that test the Weekly 20-EMA or Weekly 50-SMA for optimal average price. | Weekly RSI confirmation: Enter the initial long only after the Weekly RSI has completed a cycle and bounced from the 30–40 zone. Do not open new longs when Weekly RSI is >70. | Hold for weeks/months. Manage risk by setting a wide SL below a major yearly structure. Use minimal lot sizing (low leverage) to withstand volatility. |
 ---
 🔒 System Rules
-1. Your analysis MUST begin with a deep web search for the current **XAUUSD chart setup, current RSI(14), and key Support/Resistance levels** for the requested timeframe. You must use this information to determine the technical setup.
+1. **STRICT DATA ADHERENCE**: You must rely **EXCLUSIVELY** on the market data provided in the prompt (Price, News, Volatility). **DO NOT** attempt to search the web or hallucinate external data. If data is missing, state it in the analysis but do not invent it.
 2. Based on the user's provided balance category, you MUST SELECT the appropriate Strategy ID and apply its entry/exit logic to generate a signal.
 3. Your core mandate is to **ALWAYS FIND THE BEST TRADING OPPORTUNITY** that fits one of the four strategies. **You MUST generate a definitive BUY or SELL signal.**
 4. **NEVER ISSUE A HOLD SIGNAL.** The only exceptions are: A) Price data is missing (technical error). B) You explicitly state a major high-impact news event is actively releasing (last 5 minutes) AND you use the hold to set up a better entry on the price retest (e.g., HOLD for 15 minutes, then BUY).
@@ -206,7 +204,7 @@ Trader Profile: 14+ Year Veteran successfully scaling accounts from $10 to $100,
 You MUST structure your output with clear labels for the parsing function (e.g., SIGNAL:, CONFIDENCE:, ENTRY:).
 
 ---
-Act exactly according to this prompt. Your response must be professional and provide real-time analytical insight from your deep search.`;
+Act exactly according to this prompt. Your response must be professional and provide real-time analytical insight from the PROVIDED DATA.`;
   }
 
   // ----------------------------------------------------------------------
@@ -217,8 +215,8 @@ Act exactly according to this prompt. Your response must be professional and pro
     try {
       const primaryPrice = await goldPriceService.getGoldPrice();
       // NOTE: verifyGoldPrice is not fully implemented but kept for structure
-      const verification = await this.verifyGoldPrice(primaryPrice); 
-      
+      const verification = await this.verifyGoldPrice(primaryPrice);
+
       return {
         ...primaryPrice,
         verified: verification.isVerified,
@@ -232,8 +230,8 @@ Act exactly according to this prompt. Your response must be professional and pro
       return await goldPriceService.getGoldPrice();
     }
   }
-  
-  async verifyGoldPrice(primaryPrice) { 
+
+  async verifyGoldPrice(primaryPrice) {
     return {
       isVerified: true,
       sources: [],
@@ -251,38 +249,38 @@ Act exactly according to this prompt. Your response must be professional and pro
       recommendation: 'Safe to use for trading decisions'
     };
   }
-  
+
   getNeutralMarketStructure() {
-      // Stub structure for internal use
-      return {
-          trend: { primary: 'Neutral', strength: 0.5, alignment: 0.5 },
-          keyLevels: { support: ['N/A'], resistance: ['N/A'] },
-          volatility: { level: 'unknown', atrPercent: 0 },
-          marketRegime: 'Uncertain',
-          sessionAnalysis: this.analyzeTradingSessions()
-      };
+    // Stub structure for internal use
+    return {
+      trend: { primary: 'Neutral', strength: 0.5, alignment: 0.5 },
+      keyLevels: { support: ['N/A'], resistance: ['N/A'] },
+      volatility: { level: 'unknown', atrPercent: 0 },
+      marketRegime: 'Uncertain',
+      sessionAnalysis: this.analyzeTradingSessions()
+    };
   }
 
   // CRITICAL FIX: Placeholder for Market Sentiment display in server.js
   async getMarketSentimentPlaceholder() {
-      // Returns N/A data structure since Gemini is the only source now.
-      return {
-        trend: { direction: 'Neutral' },
-        signalStrength: 'N/A',
-        oscillators: { RSI: { value: 'N/A' }, MACD: { condition: 'Neutral' }, Stochastic: { condition: 'Neutral' } },
-        supportResistance: { resistance: ['N/A'], support: ['N/A'] },
-        timestamp: new Date().toISOString()
-      };
+    // Returns N/A data structure since Gemini is the only source now.
+    return {
+      trend: { direction: 'Neutral' },
+      signalStrength: 'N/A',
+      oscillators: { RSI: { value: 'N/A' }, MACD: { condition: 'Neutral' }, Stochastic: { condition: 'Neutral' } },
+      supportResistance: { resistance: ['N/A'], support: ['N/A'] },
+      timestamp: new Date().toISOString()
+    };
   }
 
   async preSignalValidation(marketData, timeframe) {
     const confirmations = {
-        technicalAlignment: { passed: true, details: "Technical analysis delegated to AI deep search." },
-        sentimentConsistency: await this.checkSentimentConsistency(marketData), 
-        marketRegime: await this.assessMarketCondition(marketData),
-        volatilityCheck: await this.checkVolatilityLevel(marketData),
-        newsImpact: await this.assessNewsImpact(marketData),
-        timeAnalysis: await this.analyzeOptimalTradingTime()
+      technicalAlignment: { passed: true, details: "Technical analysis delegated to AI deep search." },
+      sentimentConsistency: await this.checkSentimentConsistency(marketData),
+      marketRegime: await this.assessMarketCondition(marketData),
+      volatilityCheck: await this.checkVolatilityLevel(marketData),
+      newsImpact: await this.assessNewsImpact(marketData),
+      timeAnalysis: await this.analyzeOptimalTradingTime()
     };
 
     const confirmationScore = this.calculateConfirmationScore(confirmations);
@@ -296,7 +294,7 @@ Act exactly according to this prompt. Your response must be professional and pro
       details: this.getValidationDetails(confirmations)
     };
   }
-  
+
   // ----------------------------------------------------------------------
   // 5. AI PROMPT BUILDER
   // ----------------------------------------------------------------------
@@ -306,13 +304,13 @@ Act exactly according to this prompt. Your response must be professional and pro
       '5m': '5-minute (Scalping)', '15m': '15-minute (Short-term)',
       '1h': '1-hour (Intraday)', '4h': '4-hour (Swing)', '1d': 'Daily (Position)'
     };
-    
+
     let strategyID;
     switch (balanceCategory) {
-        case '10_50': case '51_100': strategyID = 'DLS (10-1k)'; break;
-        case '200_500': strategyID = 'MR/CT (1k-10k)'; break;
-        case '1k_plus': strategyID = 'MOMENTUM (10k-50k)'; break;
-        default: strategyID = 'MR/CT (1k-10k)';
+      case '10_50': case '51_100': strategyID = 'DLS (10-1k)'; break;
+      case '200_500': strategyID = 'MR/CT (1k-10k)'; break;
+      case '1k_plus': strategyID = 'MOMENTUM (10k-50k)'; break;
+      default: strategyID = 'MR/CT (1k-10k)';
     }
 
     const userInfo = userContext ? `
@@ -333,7 +331,7 @@ Act exactly according to this prompt. Your response must be professional and pro
     ${validationInfo}
     (If "Should Proceed: NO", your task is to find a counter-trade or a CAUTIOUS setup that aligns with the chosen strategy).
     ---
-    CURRENT MARKET DATA:
+    CURRENT MARKET DATA (USE THIS EXCLUSIVELY):
     🏦 GOLD PRICE & MARKET CONDITION:
     - Current Price: $${marketData.goldPrice?.price || 'N/A'} - Price Source: ${marketData.goldPrice?.source || 'Unknown'}
     - Today's Range: $${marketData.goldPrice?.low || 'N/A'} - $${marketData.goldPrice?.high || 'N/A'}
@@ -343,8 +341,7 @@ Act exactly according to this prompt. Your response must be professional and pro
     - High-Impact News: ${marketData.news?.marketSummary?.highImpactNews || 0} articles - USD Strength: ${marketData.news?.usdAnalysis?.strength || 'Stable'}
     - Gold Impact: ${marketData.news?.usdAnalysis?.impactOnGold?.impact || 'Neutral impact'}
     ---
-    🎯 **FIRST TASK:** Perform a deep search for the current **XAUUSD ${timeframe} Chart Setup, RSI(14), and Key Support/Resistance** to complete the technical picture.
-    🎯 **SECOND TASK:** Apply the logic of the **${strategyID}** Strategy ID to the combined data and **GENERATE A BUY OR SELL SIGNAL.**
+    🎯 **TASK:** Apply the logic of the **${strategyID}** Strategy ID to the PROVIDED data and **GENERATE A BUY OR SELL SIGNAL.**
     🎯 **REQUIRED OUTPUT:** Provide your final decision (BUY, SELL) in the strict format:
     SIGNAL: [BUY|SELL|STRONG_BUY|STRONG_SELL]
     CONFIDENCE: [0-100]%
@@ -358,7 +355,7 @@ Act exactly according to this prompt. Your response must be professional and pro
     RISK MANAGEMENT: [Lot size guidance and risk note based on the Strategy ID.]
     PROFESSIONAL RECOMMENDATION: [Final instruction to the trader.]`;
   }
-  
+
   // ----------------------------------------------------------------------
   // 6. CORE PARSING AND FALLBACKS
   // ----------------------------------------------------------------------
@@ -375,27 +372,27 @@ Act exactly according to this prompt. Your response must be professional and pro
 
     let signal = signalMatch ? signalMatch[1].toUpperCase() : 'BUY'; // Mandate BUY if parse fails
     let confidence = confidenceMatch ? parseInt(confidenceMatch[1]) : 50;
-    let entry = entryMatch ? parseFloat(entryMatch[1]) : fallbackPrice; 
+    let entry = entryMatch ? parseFloat(entryMatch[1]) : fallbackPrice;
     let stopLoss = slMatch ? parseFloat(slMatch[1]) : 0;
     let takeProfit1 = tp1Match ? parseFloat(tp1Match[1]) : 0;
     let takeProfit2 = tp2Match ? parseFloat(tp2Match[1]) : 0;
 
     const technicalAnalysis = this.extractSection(analysis, "TECHNICAL RATIONALE:", "LEVEL EXPLANATION:") || "AI analysis provided below.";
-    const levelExplanation = this.extractSection(analysis, "LEVEL EXPLANATION:", "MARKET CONTEXT & FUNDAMENTALS:"); 
+    const levelExplanation = this.extractSection(analysis, "LEVEL EXPLANATION:", "MARKET CONTEXT & FUNDAMENTALS:");
     const riskManagement = this.extractSection(analysis, "RISK MANAGEMENT:", "PROFESSIONAL RECOMMENDATION:") || `Risk/Reward: ${this.calculateRiskRewardRatio(entry, stopLoss, takeProfit1).ratio}`;
     const marketContext = this.extractSection(analysis, "MARKET CONTEXT & FUNDAMENTALS:", "RISK MANAGEMENT:");
     const professionalRecommendation = this.extractSection(analysis, "PROFESSIONAL RECOMMENDATION:", "---") || "Trade with caution.";
 
     // CRITICAL FIX: Enforce the BUY/SELL mandate
-    if (signal === 'HOLD') { 
-        // Force to a directional signal if AI violates the mandate
-        signal = confidence >= 50 ? 'BUY' : 'SELL'; 
-        confidence = Math.min(confidence, 60); // Cap confidence for mandated signal
+    if (signal === 'HOLD') {
+      // Force to a directional signal if AI violates the mandate
+      signal = confidence >= 50 ? 'BUY' : 'SELL';
+      confidence = Math.min(confidence, 60); // Cap confidence for mandated signal
     }
-    
+
     // Safety checks for entry and levels generation
     if (!entry) {
-        throw new Error("AI issued signal but could not determine entry price from market data.");
+      throw new Error("AI issued signal but could not determine entry price from market data.");
     }
     if (stopLoss === 0 || takeProfit1 === 0) {
       const calculated = this.calculateProfessionalLevels(signal, entry, marketData);
@@ -409,7 +406,7 @@ Act exactly according to this prompt. Your response must be professional and pro
 
 
     return {
-      signal: signal, confidence: confidence, timeframe: timeframe, entry: entry, stopLoss: stopLoss, 
+      signal: signal, confidence: confidence, timeframe: timeframe, entry: entry, stopLoss: stopLoss,
       takeProfit1: takeProfit1, takeProfit2: takeProfit2, technicalAnalysis: technicalAnalysis.trim() || "AI analysis provided in recommendation.",
       levelExplanation: levelExplanation.trim() || "Levels calculated based on volatility.", marketContext: marketContext.trim() || "N/A",
       riskManagement: finalRiskManagement, professionalRecommendation: professionalRecommendation.trim() || "Trade setup generated by AI.",
@@ -433,7 +430,7 @@ Act exactly according to this prompt. Your response must be professional and pro
     }
     return (score / totalWeights) * 10;
   }
-  
+
   async checkSentimentConsistency(marketData) {
     try {
       const newsSentiment = marketData.news?.overallSentiment || 'neutral';
@@ -446,16 +443,16 @@ Act exactly according to this prompt. Your response must be professional and pro
 
   async assessMarketCondition(marketData) { return { passed: true, details: 'Technical data delegated to AI.' }; }
   async checkVolatilityLevel(marketData) { return { passed: true, details: 'Volatility check delegated to AI.' }; }
-  
+
   async assessNewsImpact(marketData) {
     try {
       let articles = marketData.news?.articles || [];
       if (articles && typeof articles === 'object' && !Array.isArray(articles)) { articles = Object.values(articles).flat(); }
       if (!Array.isArray(articles)) { articles = []; }
 
-      const highImpactNews = articles.filter(article => 
+      const highImpactNews = articles.filter(article =>
         article && article.title && typeof article.title === 'string' && (
-          article.title.toLowerCase().includes('fed') || article.title.toLowerCase().includes('cpi') || 
+          article.title.toLowerCase().includes('fed') || article.title.toLowerCase().includes('cpi') ||
           article.title.toLowerCase().includes('nfp') || article.title.toLowerCase().includes('rate decision')
         )
       );
@@ -474,7 +471,7 @@ Act exactly according to this prompt. Your response must be professional and pro
       return { passed: false, details: 'Error analyzing trading time' };
     }
   }
-  
+
   // ----------------------------------------------------------------------
   // 8. SAFETY FALLBACKS (MOVED FROM AnalysisService)
   // ----------------------------------------------------------------------
@@ -503,7 +500,7 @@ Act exactly according to this prompt. Your response must be professional and pro
       source: 'fallback', isFallback: true, error: errorMessage
     };
   }
-  
+
   // ----------------------------------------------------------------------
   // 9.HELPERS
   // ----------------------------------------------------------------------
@@ -511,8 +508,8 @@ Act exactly according to this prompt. Your response must be professional and pro
   analyzeTradingSessions() {
     const hour = new Date().getUTCHours();
     let currentSession, nextSession, recommendation;
-    if (hour >= 0 && hour < 8) { currentSession = 'Asian'; nextSession = 'London'; recommendation = 'Wait for London open'; } 
-    else if (hour >= 8 && hour < 16) { currentSession = 'London'; nextSession = 'New York'; recommendation = 'Active trading'; } 
+    if (hour >= 0 && hour < 8) { currentSession = 'Asian'; nextSession = 'London'; recommendation = 'Wait for London open'; }
+    else if (hour >= 8 && hour < 16) { currentSession = 'London'; nextSession = 'New York'; recommendation = 'Active trading'; }
     else { currentSession = 'New York'; nextSession = 'Asian'; recommendation = 'Reduce position sizes'; }
     return { currentSession, nextSession, recommendation };
   }
@@ -522,7 +519,7 @@ Act exactly according to this prompt. Your response must be professional and pro
       const baseConfidence = (aiSignal.confidence || 50) / 100;
       const validationScore = (preAnalysis.confirmationScore || 5) / 10;
       const riskReward = this.calculateRiskRewardRatio(aiSignal.entry, aiSignal.stopLoss, aiSignal.takeProfit1);
-      
+
       const quality = (baseConfidence * 0.4) + (validationScore * 0.4) + (riskReward.score * 0.2);
       return Math.round(quality * 10);
     } catch (error) {
@@ -563,7 +560,7 @@ Act exactly according to this prompt. Your response must be professional and pro
     return { lots: roundedLots, riskAmount: `$${riskAmount.toFixed(2)}`, riskPercent: `${riskPerTradePercent * 100}%`, maxPosition: `$${(roundedLots * entry).toFixed(2)} (Notional)`, calculation: `Based on $${balance} account balance with ${riskPerTradePercent * 100}% risk rule` };
   }
   roundToNearestQuarter(price) { return parseFloat((price || 0).toFixed(2)); }
-  extractSection(text, start, end) { 
+  extractSection(text, start, end) {
     try {
       const startRegex = new RegExp(start, "i");
       const endRegex = new RegExp(end, "i");

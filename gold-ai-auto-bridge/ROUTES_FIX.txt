@@ -1,0 +1,12 @@
+// QUICK FIX for routes.js
+// Add these lines at the top after line 4:
+
+const licenseService = require('../services/licenseService'); // Already an instance!
+const SignalScorer = require('../services/signalScorer'); // Class
+const DailyStatsManager = require('../services/dailyStatsManager'); // Class
+
+// Then create instances for the ones that need it:
+const statsManager = new DailyStatsManager(db);
+
+// Don't do: const licenseService = new LicenseService(db); <- THIS BREAKS!
+// licenseService is already an instance from the require()

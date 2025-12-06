@@ -1,3 +1,6 @@
+// server.js
+
+// Load environment variables
 require('dotenv').config();
 
 // Import dependencies
@@ -7,18 +10,25 @@ const express = require('express');
 // Import our services
 const authService = require('./services/authService');
 const databaseService = require('./services/databaseService');
+
+// Import market data services - Fixed paths
+// const tradingViewService = require('./services/market/tradingViewService'); // DELETED
 const goldPriceService = require('./services/market/goldPriceService');
 const newsService = require('./services/market/newsService');
-const openaiService = require('./services/openaiService'); 
 
-// Initialize Express app
+const openaiService = require('./services/openaiService');
+
+// Initialize Express app for health checks
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Middleware
+app.use(express.json());
+
 // Basic health check endpoint
 app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'OK', 
+  res.status(200).json({
+    status: 'OK',
     service: 'GoldAI Mentor Pro',
     timestamp: new Date().toISOString()
   });
@@ -27,11 +37,21 @@ app.get('/health', (req, res) => {
 // Start the web server
 app.listen(PORT, () => {
   console.log(`🟢 Health check server running on port ${PORT}`);
+  console.log(`📡 Signal API available at /api/signal/generate`);
 });
+const signalRoutes = require('./routes/signalRoutes');
+app.use('/api/signal', signalRoutes);
 
-// Initialize Telegram Bot WITH POLLING (works on free tier)
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { 
-  polling: true
+// Initialize Telegram Bot
+const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
+  polling: true,
+  request: {
+    timeout: 60000, // Increase timeout to 60 seconds
+    agentOptions: {
+      keepAlive: true,
+      family: 4 // Use IPv4
+    }
+  }
 });
 
 // Bot startup message
@@ -47,6 +67,10 @@ bot.on('polling_error', (error) => {
   console.error('❌ Polling error:', error);
 });
 
+// ==================== NEW RATE LIMITING LOGIC (COMMENTED OUT) ====================
+
+// Rate limiting logic remains commented out
+
 // ==================== TELEGRAM KEYBOARDS ====================
 
 // This is the main "quick buttons" for all users
@@ -58,7 +82,7 @@ const mainKeyboard = {
       ['⚡ Quick Analysis', 'ℹ️ Help']
     ],
     resize_keyboard: true,
-    one_time_keyboard: false 
+    one_time_keyboard: false
   }
 };
 
@@ -137,29 +161,29 @@ function getAnalysisOptionsKeyboard() {
 async function requireAuth(telegramId) {
   try {
     const user = await databaseService.findUserByTelegramId(telegramId.toString());
-    
+
     if (!user) {
-      return { 
-        authorized: false, 
-        message: '❌ Please activate your subscription first with /start YOUR_PASSWORD' 
+      return {
+        authorized: false,
+        message: '❌ Please activate your subscription first with /start YOUR_PASSWORD'
       };
     }
 
     if (user.status !== 'active') {
-      return { 
-        authorized: false, 
-        message: '❌ Your subscription is inactive or expired. Please contact support.' 
+      return {
+        authorized: false,
+        message: '❌ Your subscription is inactive or expired. Please contact support.'
       };
     }
 
     // CRITICAL: We return the user object
     return { authorized: true, user: user };
-    
+
   } catch (error) {
     console.error('Auth middleware error:', error);
-    return { 
-      authorized: false, 
-      message: '❌ Authentication system error. Please try again.' 
+    return {
+      authorized: false,
+      message: '❌ Authentication system error. Please try again.'
     };
   }
 }
@@ -167,12 +191,12 @@ async function requireAuth(telegramId) {
 // Signal formatting function
 function formatSignalMessage(signal) {
   const signalEmoji = signal.signal === 'STRONG_BUY' ? '🟢🟢' :
-                     signal.signal === 'BUY' ? '🟢' :
-                     signal.signal === 'STRONG_SELL' ? '🔴🔴' :
-                     signal.signal === 'SELL' ? '🔴' : '🟡'; // HOLD is 🟡
+    signal.signal === 'BUY' ? '🟢' :
+      signal.signal === 'STRONG_SELL' ? '🔴🔴' :
+        signal.signal === 'SELL' ? '🔴' : '🟡'; // HOLD is 🟡
 
   const confidenceColor = signal.confidence >= 70 ? '🟢' :
-                         signal.confidence >= 60 ? '🟡' : '🔴';
+    signal.confidence >= 60 ? '🟡' : '🔴';
 
   let message = `${signalEmoji} <b>TRADING SIGNAL: ${signal.signal}</b>\n`;
   message += `⏰ <b>Timeframe:</b> ${signal.timeframe.toUpperCase()}\n`;
@@ -185,7 +209,7 @@ function formatSignalMessage(signal) {
     message += `🛑 <b>Stop Loss:</b> ${signal.stopLoss ? `$${signal.stopLoss}` : 'N/A'}\n`;
     message += `🎯 <b>Take Profit 1:</b> ${signal.takeProfit1 ? `$${signal.takeProfit1}` : 'N/A'}\n`;
     message += `🎯 <b>Take Profit 2:</b> ${signal.takeProfit2 ? `$${signal.takeProfit2}` : 'N/A'}\n\n`;
-    
+
     if (signal.levelExplanation) {
       message += `💡 <b>LEVEL EXPLANATION</b>\n`;
       message += `${signal.levelExplanation}\n\n`;
@@ -229,7 +253,7 @@ function showMainMenu(chatId, userName = 'Trader') {
     `<code>/analysis</code> - Full market analysis\n` +
     `<code>/help</code> - Show all commands`;
 
-  bot.sendMessage(chatId, welcomeMessage, { 
+  bot.sendMessage(chatId, welcomeMessage, {
     parse_mode: 'HTML',
     reply_markup: mainKeyboard.reply_markup // This is the "quick buttons"
   });
@@ -242,15 +266,15 @@ bot.onText(/\/start(?: (.+))?/, async (msg, match) => {
   const chatId = msg.chat.id;
   const telegramId = msg.from.id;
   const userName = msg.from.first_name || 'Trader';
-  
+
   // If password provided
   if (match[1]) {
     const password = match[1].trim();
-    
+
     const authResult = await authService.authenticateUser(password, telegramId);
-    
+
     if (authResult.success) {
-      bot.sendMessage(chatId, 
+      bot.sendMessage(chatId,
         `🎉 <b>Welcome ${userName} to GoldAI Mentor Pro!</b>\n\n` +
         `✅ Your <b>${authResult.user.plan}</b> subscription is now active!\n\n` +
         `💎 <b>Professional Features:</b>\n` +
@@ -262,14 +286,14 @@ bot.onText(/\/start(?: (.+))?/, async (msg, match) => {
         `Use the buttons below or commands to get started! 🚀`,
         { parse_mode: 'HTML' }
       );
-      
+
       // Show main menu (quick buttons) after successful auth
       setTimeout(() => showMainMenu(chatId, userName), 1000);
-      
+
     } else {
       bot.sendMessage(chatId, authResult.message);
     }
-    
+
   } else {
     // No password provided - check if user is already registered
     const auth = await requireAuth(telegramId);
@@ -285,9 +309,9 @@ bot.onText(/\/start(?: (.+))?/, async (msg, match) => {
         `Example: <code>/start GOLDPRO_ABC123</code>\n\n` +
         `Need an access code? Contact support.`;
 
-      bot.sendMessage(chatId, welcomeMsg, { 
+      bot.sendMessage(chatId, welcomeMsg, {
         parse_mode: 'HTML',
-        reply_markup: removeKeyboard.reply_markup 
+        reply_markup: removeKeyboard.reply_markup
       });
     }
   }
@@ -298,10 +322,10 @@ bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const telegramId = msg.from.id;
   const text = msg.text;
-  
+
   // Skip if it's a command
   if (text && text.startsWith('/')) return;
-  
+
   // CRITICAL: Get user object from auth
   const auth = await requireAuth(telegramId);
   if (!auth.authorized) {
@@ -311,7 +335,7 @@ bot.on('message', async (msg) => {
   // We now have auth.user which contains balance, etc.
 
   try {
-    switch(text) {
+    switch (text) {
       case '💰 Gold Price':
         await handleGoldPrice(chatId);
         break;
@@ -331,11 +355,11 @@ bot.on('message', async (msg) => {
       case 'ℹ️ Help':
         await handleHelp(chatId, msg.from.id);
         break;
-      
+
       case '⬅️ Main Menu': // Unified "Back" button
         showMainMenu(chatId, msg.from.first_name);
         break;
-      
+
       // Admin buttons
       case '👑 Create User':
       case '📊 List Users':
@@ -363,8 +387,8 @@ bot.on('callback_query', async (callbackQuery) => {
 
   // Answer the callback query immediately to prevent timeout
   try {
-    await bot.answerCallbackQuery(callbackQuery.id, { 
-      text: 'Processing your request...' 
+    await bot.answerCallbackQuery(callbackQuery.id, {
+      text: 'Processing your request...'
     });
   } catch (error) {
     console.error('Error answering callback query:', error);
@@ -384,28 +408,28 @@ bot.on('callback_query', async (callbackQuery) => {
       const timeframe = parts[1];
 
       if (parts.length === 2 && timeframe !== 'all') {
-          
-          await bot.editMessageText(`🎯 Timeframe set to ${timeframe.toUpperCase()}. Now, choose your account **Balance/Risk Tier** for a customized signal:`, {
-              chat_id: chatId,
-              message_id: callbackQuery.message.message_id,
-              parse_mode: 'HTML',
-              reply_markup: getBalanceKeyboard(timeframe).reply_markup
-          });
+
+        await bot.editMessageText(`🎯 Timeframe set to ${timeframe.toUpperCase()}. Now, choose your account **Balance/Risk Tier** for a customized signal:`, {
+          chat_id: chatId,
+          message_id: callbackQuery.message.message_id,
+          parse_mode: 'HTML',
+          reply_markup: getBalanceKeyboard(timeframe).reply_markup
+        });
       } else if (parts.length > 3 && parts[2] === 'balance') {
-          
-          const balanceCategory = parts.slice(3).join('_'); 
-          await generateAndSendSignal(chatId, timeframe, auth.user, balanceCategory);
+
+        const balanceCategory = parts.slice(3).join('_');
+        await generateAndSendSignal(chatId, timeframe, auth.user, balanceCategory);
       } else if (timeframe === 'all') {
         // Handle 'all' signal request
         await generateMultipleSignals(chatId, auth.user);
       }
     }
-    
+
     else if (data.startsWith('analysis_')) {
       const type = data.replace('analysis_', '');
       await handleAnalysisType(chatId, type);
     }
-    
+
   } catch (error) {
     console.error('Callback error:', error);
     await bot.sendMessage(chatId, '❌ Error processing your request. Please try again.');
@@ -417,29 +441,29 @@ bot.on('callback_query', async (callbackQuery) => {
 async function handleGoldPrice(chatId) {
   try {
     const goldData = await goldPriceService.getGoldPrice();
-    
+
     const changeEmoji = goldData.change >= 0 ? '📈' : '📉';
-    
+
     let message = `💰 <b>GOLD PRICE ANALYSIS</b>\n\n`;
     message += `💵 <b>Current:</b> $${goldData.price}\n`;
     message += `${changeEmoji} <b>Change:</b> ${goldData.change} (${goldData.changePercent}%)\n`;
     message += `📊 <b>Range:</b> $${goldData.low} - $${goldData.high}\n`;
     message += `🔄 <b>Source:</b> ${goldData.source}\n\n`;
-    
+
     if (goldData.predictions) {
       message += `🔮 <b>PRICE PREDICTIONS</b>\n`;
       message += `⏰ 5-hour: $${goldData.predictions.shortTerm?.predictedPrice || 'N/A'} (${goldData.predictions.shortTerm?.confidence || 'N/A'}%)\n`;
       message += `📅 24-hour: $${goldData.predictions.mediumTerm?.predictedPrice || 'N/A'} (${goldData.predictions.mediumTerm?.confidence || 'N/A'}%)\n`;
       message += `🗓️ 1-month: $${goldData.predictions.longTerm?.predictedPrice || 'N/A'} (${goldData.predictions.longTerm?.confidence || 'N/A'}%)\n\n`;
     }
-    
+
     if (goldData.marketCondition) {
       message += `🎯 <b>MARKET CONDITION</b>\n`;
       message += `⚡ Speed: ${goldData.marketCondition.speed}\n`;
       message += `📊 Volatility: ${goldData.marketCondition.condition}\n`;
       message += `💪 Momentum: ${goldData.marketCondition.confidence}\n\n`;
     }
-    
+
     message += `⏰ ${new Date(goldData.timestamp).toLocaleString()}`;
 
     await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
@@ -453,26 +477,26 @@ async function handleMarketSentiment(chatId) {
   try {
     // CRITICAL FIX: The call site is now fixed to use the method inside the openaiService instance.
     const sentiment = await openaiService.getMarketSentimentPlaceholder();
-    
+
     let message = `📊 <b>TECHNICAL ANALYSIS (AI-DELEGATED)</b>\n\n`;
     message += `🎯 <b>Overall Bias:</b> ${sentiment.trend?.direction || 'Neutral'}\n`;
     message += `💪 <b>Strength:</b> ${sentiment.trend?.strength || 'Medium'}\n`;
-    
+
     message += `⚠️ Note: This summary is based on placeholder analysis. **Use the "Get Signal" button for full AI chart analysis**.\n\n`;
-    
+
     if (sentiment.oscillators) {
       message += `🔄 <b>OSCILLATORS</b>\n`;
       message += `• RSI: ${sentiment.oscillators.RSI?.value || 'N/A'} (${sentiment.oscillators.RSI?.condition || 'Neutral'})\n`;
       message += `• MACD: ${sentiment.oscillators.MACD?.condition || 'Neutral'}\n`;
       message += `• Stochastic: ${sentiment.oscillators.Stochastic?.condition || 'Neutral'}\n\n`;
     }
-    
+
     if (sentiment.supportResistance) {
       message += `🎯 <b>KEY LEVELS</b>\n`;
       message += `• Resistance (R1): $${sentiment.supportResistance.resistance[0] || 'N/A'}\n`;
       message += `• Support (S1): $${sentiment.supportResistance.support[0] || 'N/A'}\n\n`;
     }
-    
+
     message += `⏰ ${new Date(sentiment.timestamp).toLocaleString()}`;
 
     await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
@@ -485,35 +509,35 @@ async function handleMarketSentiment(chatId) {
 async function handleMarketNews(chatId) {
   try {
     const newsData = await newsService.getGoldNews();
-    
+
     let message = `📰 <b>MARKET NEWS & FUNDAMENTALS</b>\n\n`;
     message += `🎯 <b>Overall Sentiment:</b> ${newsData.overallSentiment?.toUpperCase() || 'NEUTRAL'}\n`;
     message += `🏷️ <b>Key Themes:</b> ${newsData.keyThemes?.join(', ') || 'General market'}\n`;
     message += `📊 <b>High-Impact News:</b> ${newsData.marketSummary?.highImpactNews || 0} articles\n\n`;
-    
+
     if (newsData.usdAnalysis) {
       message += `💵 <b>USD ANALYSIS</b>\n`;
       message += `• Strength: ${newsData.usdAnalysis.strength}\n`;
       message += `• Gold Impact: ${newsData.usdAnalysis.impactOnGold?.impact || 'Neutral'}\n\n`;
     }
-    
+
     // Handle both array and object structures for articles
     let articles = newsData.articles || [];
     if (articles && typeof articles === 'object' && !Array.isArray(articles)) {
       articles = Object.values(articles).flat();
     }
-    
+
     // Show top 2 news articles
     if (articles.length > 0) {
       message += `📝 <b>TOP NEWS</b>\n`;
       articles.slice(0, 2).forEach((article, index) => {
-        const sentimentEmoji = article.sentiment === 'bullish' ? '🟢' : 
-                              article.sentiment === 'bearish' ? '🔴' : '🟡';
+        const sentimentEmoji = article.sentiment === 'bullish' ? '🟢' :
+          article.sentiment === 'bearish' ? '🔴' : '🟡';
         message += `${index + 1}. ${article.title}\n`;
         message += `   ${sentimentEmoji} ${article.sentiment?.toUpperCase()}\n\n`;
       });
     }
-    
+
     message += `⏰ ${new Date(newsData.timestamp).toLocaleString()}`;
 
     await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
@@ -527,29 +551,29 @@ async function handleMarketNews(chatId) {
 async function generateAndSendSignal(chatId, timeframe, userContext = null, balanceCategory = 'default') {
   // Rate limiting logic remains commented out
   let processingMsg;
-  
+
   try {
-    processingMsg = await bot.sendMessage(chatId, 
+    processingMsg = await bot.sendMessage(chatId,
       `🟡 Generating professional ${timeframe} trading signal for **${balanceCategory}** risk profile...\n` +
       `🧠 AI Analyst Confirming trading Setup this may take a minute...`
     );
 
     // CRITICAL FIX: Direct call to openaiService
     const signal = await openaiService.generateTradingSignal(timeframe, userContext, balanceCategory);
-    
+
     const signalMessage = formatSignalMessage(signal);
     await bot.editMessageText(signalMessage, {
       chat_id: chatId,
       message_id: processingMsg.message_id,
       parse_mode: 'HTML'
     });
-    
+
   } catch (error) {
     console.error('Signal generation error:', error);
-    
+
     // CRITICAL: Use the error message from the critical failure (no mock)
     const errorMessage = `❌ CRITICAL FAILURE: ${error.message}\n\nSIGNAL UNAVAILABLE. Please check API keys and services.`;
-    
+
     if (processingMsg) {
       try {
         await bot.editMessageText(errorMessage, {
@@ -569,12 +593,12 @@ async function generateAndSendSignal(chatId, timeframe, userContext = null, bala
 // --- CRITICAL BUG FIX ---
 async function generateMultipleSignals(chatId, userContext = null) {
   let processingMsg;
-  
+
   try {
     const timeframes = ['15m', '1h', '4h'];
     let allSignals = [];
-    
-    processingMsg = await bot.sendMessage(chatId, 
+
+    processingMsg = await bot.sendMessage(chatId,
       `🟡 Generating multi-timeframe analysis...\n` +
       `⏰ Timeframes: 15m, 1h, 4h\n` +
       `📊 This may take a moment...`
@@ -592,31 +616,31 @@ async function generateMultipleSignals(chatId, userContext = null) {
     }
 
     let summaryMessage = `🤖 <b>MULTI-TIMEFRAME ANALYSIS SUMMARY</b>\n\n`;
-    
+
     allSignals.forEach(signal => {
       const signalEmoji = signal.signal === 'STRONG_BUY' ? '🟢🟢' :
-                         signal.signal === 'BUY' ? '🟢' :
-                         signal.signal === 'STRONG_SELL' ? '🔴🔴' :
-                         signal.signal === 'SELL' ? '🔴' : signal.signal === 'ERROR' ? '❌' : '🟡';
-      
+        signal.signal === 'BUY' ? '🟢' :
+          signal.signal === 'STRONG_SELL' ? '🔴🔴' :
+            signal.signal === 'SELL' ? '🔴' : signal.signal === 'ERROR' ? '❌' : '🟡';
+
       summaryMessage += `${signalEmoji} <b>${signal.timeframe.toUpperCase()}:</b> ${signal.signal} (${signal.confidence}%)\n`;
       if (signal.signal === 'ERROR') {
-          summaryMessage += `<i>Failure: ${signal.technicalAnalysis.substring(0, 50)}...</i>\n`;
+        summaryMessage += `<i>Failure: ${signal.technicalAnalysis.substring(0, 50)}...</i>\n`;
       }
     });
-    
+
     summaryMessage += `\n💡 <i>Use specific timeframe signals for detailed trade setups.</i>`;
-    
+
     await bot.editMessageText(summaryMessage, {
       chat_id: chatId,
       message_id: processingMsg.message_id,
       parse_mode: 'HTML'
     });
-    
+
   } catch (error) {
     console.error('Multi-signal error:', error);
     const errorMessage = `❌ Error generating multi-timeframe analysis: ${error.message}`;
-    
+
     if (processingMsg) {
       try {
         await bot.editMessageText(errorMessage, {
@@ -635,9 +659,9 @@ async function generateMultipleSignals(chatId, userContext = null) {
 
 async function handleQuickAnalysis(chatId) {
   let processingMsg;
-  
+
   try {
-    processingMsg = await bot.sendMessage(chatId, 
+    processingMsg = await bot.sendMessage(chatId,
       `⚡ Running quick market analysis...\n` +
       `📊 Checking all market dimensions...`
     );
@@ -647,25 +671,25 @@ async function handleQuickAnalysis(chatId) {
       goldPriceService.getGoldPrice().catch(() => null),
       newsService.getGoldNews().catch(() => null)
     ]);
-    
+
     // NOTE: Technical sentiment is simulated as 'Neutral' since the service is gone
     const technicalSentiment = { trend: { direction: 'Neutral' } };
 
     let analysisMessage = `⚡ <b>QUICK MARKET ANALYSIS</b>\n\n`;
-    
+
     if (goldData) {
       const changeEmoji = goldData.change >= 0 ? '📈' : '📉';
       analysisMessage += `💰 <b>GOLD:</b> $${goldData.price} ${changeEmoji}\n`;
     }
-    
+
     analysisMessage += `📊 <b>TECHNICAL:</b> Neutral bias (AI required for full chart analysis)\n`;
-    
+
     if (newsData) {
       analysisMessage += `📰 <b>NEWS:</b> ${newsData.overallSentiment || 'Neutral'} sentiment\n`;
     }
-    
+
     analysisMessage += `\n🎯 <b>RECOMMENDATION:</b> `;
-    
+
     // Simple recommendation logic - uses real data if available
     if (technicalSentiment?.trend?.direction === 'bullish' && newsData?.overallSentiment === 'bullish') {
       analysisMessage += `Consider LONG positions\n`;
@@ -674,19 +698,19 @@ async function handleQuickAnalysis(chatId) {
     } else {
       analysisMessage += `Wait for clearer signals\n`;
     }
-    
+
     analysisMessage += `\n💡 <i>Use "Get Signal" for detailed trade setup.</i>`;
-    
+
     await bot.editMessageText(analysisMessage, {
       chat_id: chatId,
       message_id: processingMsg.message_id,
       parse_mode: 'HTML'
     });
-    
+
   } catch (error) {
     console.error('Quick analysis error:', error);
     const errorMessage = `❌ Error in quick analysis: ${error.message}`;
-    
+
     if (processingMsg) {
       try {
         await bot.editMessageText(errorMessage, {
@@ -705,7 +729,7 @@ async function handleQuickAnalysis(chatId) {
 
 async function handleHelp(chatId, telegramId) {
   const isAdmin = telegramId.toString() === process.env.ADMIN_TELEGRAM_ID;
-  
+
   let helpText = `<b>📚 GoldAI Mentor Pro - Commands Guide</b>\n\n` +
     `<b>🎯 Quick Actions (Buttons):</b>\n` +
     `• <b>Gold Price</b> - Live price with predictions\n` +
@@ -713,34 +737,34 @@ async function handleHelp(chatId, telegramId) {
     `• <b>Market News</b> - News & fundamentals\n` +
     `• <b>Get Signal</b> - AI trading signals\n` +
     `• <b>Quick Analysis</b> - Rapid market scan\n\n` +
-    
+
     `<b>⌨️ Text Commands:</b>\n` +
     `<code>/start</code> - Welcome & activation\n` +
-    `<code>/menu</code> - Show main menu\n` + 
+    `<code>/menu</code> - Show main menu\n` +
     `<code>/price</code> - Gold price details\n` +
     `<code>/sentiment</code> - Technical analysis\n` +
     `<code>/news</code> - Market news\n` +
     `<code>/signal TIMEFRAME</code> - Trading signal\n` +
     `<code>/analysis</code> - Full market analysis\n` +
     `<code>/help</code> - This help message\n\n` +
-    
+
     `<b>📊 Timeframes:</b> 5m, 15m, 1h, 4h, 24h\n\n` +
-    
+
     `<b>💎 Professional Features:</b>\n` +
     `• AI powered Trading \n` +
     `• Risk-managed position sizing\n` +
     `• Multi-confirmation signals\n` +
     `• Real-time market monitoring`;
-  
+
   if (isAdmin) {
     helpText += `\n\n<b>👑 Admin Commands:</b>\n` +
       `<code>/admin create basic|premium</code>\n` +
       `<code>/admin users</code> - List all users`;
   }
-  
-  await bot.sendMessage(chatId, helpText, { 
+
+  await bot.sendMessage(chatId, helpText, {
     parse_mode: 'HTML',
-    reply_markup: mainKeyboard.reply_markup 
+    reply_markup: mainKeyboard.reply_markup
   });
 }
 
@@ -748,11 +772,11 @@ async function handleAnalysisType(chatId, type) {
   // Implementation for different analysis types
   const analysisTypes = {
     technical: '📊 Technical Analysis',
-    news: '📰 News Analysis', 
+    news: '📰 News Analysis',
     full: '🤖 Full AI Analysis',
     prediction: '🔮 Price Prediction'
   };
-  
+
   await bot.sendMessage(chatId, `Starting ${analysisTypes[type]}... This feature is coming soon!`);
 }
 
@@ -776,19 +800,19 @@ bot.onText(/\/news/, (msg) => handleMarketNews(msg.chat.id));
 // This command must also check auth and pass userContext
 bot.onText(/\/signal(?: (.+))?/, async (msg, match) => {
   const timeframe = match[1] || '1h';
-  
+
   // BUG FIX: Added auth check
   const auth = await requireAuth(msg.from.id);
   if (!auth.authorized) {
     bot.sendMessage(msg.chat.id, auth.message);
     return;
   }
-  
+
   // New flow: Skip directly to balance selection if using command
   const chatId = msg.chat.id;
-  await bot.sendMessage(chatId, `🎯 Timeframe set to ${timeframe.toUpperCase()}. Now, choose your account **Balance/Risk Tier** for a customized signal:`, { 
-      parse_mode: 'HTML',
-      reply_markup: getBalanceKeyboard(timeframe).reply_markup 
+  await bot.sendMessage(chatId, `🎯 Timeframe set to ${timeframe.toUpperCase()}. Now, choose your account **Balance/Risk Tier** for a customized signal:`, {
+    parse_mode: 'HTML',
+    reply_markup: getBalanceKeyboard(timeframe).reply_markup
   });
 });
 
@@ -807,7 +831,7 @@ bot.onText(/\/admin create (.+)/, async (msg, match) => {
   }
 
   const result = await authService.createUser(planType);
-  
+
   if (result.success) {
     await bot.sendMessage(chatId,
       `👑 ADMIN: User Created Successfully!\n\n` +
@@ -833,14 +857,14 @@ bot.onText(/\/admin users/, async (msg) => {
 
   try {
     const users = await databaseService.getAllUsers();
-    
+
     if (users.length === 0) {
       await bot.sendMessage(chatId, '📊 No users found in the system.');
       return;
     }
 
     let userList = `📊 TOTAL USERS: ${users.length}\n\n`;
-    
+
     users.forEach((user, index) => {
       userList += `${index + 1}. ${user.plan.toUpperCase()} - ${user.status}\n`;
       userList += `   Telegram: ${user.telegramId || 'Not activated'}\n`;
@@ -856,6 +880,6 @@ bot.onText(/\/admin users/, async (msg) => {
 });
 
 console.log('✅ GoldAI Mentor Pro Bot started successfully!');
-console.log('🤖 Bot is now listening for messages via Webhook...');
+console.log('🤖 Bot is now listening for messages...');
 console.log('🎯 Telegram quick buttons enabled for easy navigation');
 console.log('👑 Admin commands available');

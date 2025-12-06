@@ -1,197 +1,177 @@
 const axios = require('axios');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 class GoldPriceService {
   constructor() {
-    this.alphaVantageKey = process.env.ALPHA_VANTAGE_API_KEY;
-    this.goldAPIKey = process.env.GOLDAPI_KEY;
-   
-    this.exchangeRateKey = process.env.EXCHANGERATE_API_KEY;
-    
+    // Multiple GoldAPI.io keys (5 keys)
+    this.goldAPIKeys = [
+      process.env.GOLDAPI_KEY,
+      process.env.GOLDAPI_KEY_2,
+      process.env.GOLDAPI_KEY_3,
+      process.env.GOLDAPI_KEY_4,
+      process.env.GOLDAPI_KEY_5
+    ].filter(key => key);
+
+
+    this.alphaVantageKeys = [
+      process.env.ALPHA_VANTAGE_KEY,
+      process.env.ALPHA_VANTAGE_KEY_2,
+      process.env.ALPHA_VANTAGE_KEY_3,
+      process.env.ALPHA_VANTAGE_KEY_4,
+      process.env.ALPHA_VANTAGE_KEY_5
+    ].filter(key => key); // Remove empty keys
+
+    // Track current key indices for rotation
+    this.currentGoldAPIKeyIndex = 0;
+    this.currentAlphaVantageKeyIndex = 0;
+
+    // Initialize Gemini AI Flash 2.5
+    this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    this.model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
     this.lastPriceUpdate = null;
-    this.priceCache = { priceData: null, timestamp: null, ttl: 30000 }; 
+    this.priceCache = { priceData: null, timestamp: null, ttl: 30000 };
   }
 
   async getGoldPrice() {
     try {
       console.log('🟡 Fetching REAL-TIME gold price...');
-      
+
       if (this.isPriceCacheValid()) {
         console.log('✅ Using cached gold price');
         return this.priceCache.priceData;
       }
 
       let priceData;
-      
-      if (this.goldAPIKey) {
-        console.log('...using GoldAPI (Paid)');
-        priceData = await this.getGoldAPIPrice();
-      } else if (this.alphaVantageKey) {
-        console.log('...using Alpha Vantage (Paid)');
-        priceData = await this.getAlphaVantagePrice();
-      } else {
-        console.log('...no paid keys found. Using Free Multi-Source.');
-        priceData = await this.getMultiSourcePrice(); 
+
+      // Try GoldAPI.io with multiple keys
+      if (this.goldAPIKeys.length > 0) {
+        console.log(`🔑 Trying ${this.goldAPIKeys.length} GoldAPI keys...`);
+        priceData = await this.tryGoldAPIWithMultipleKeys();
       }
 
-      
-      const enhancedData = await this.enhanceWithPredictions(priceData);
-      
-      
+      // If GoldAPI failed, try Alpha Vantage with multiple keys
+      if (!priceData && this.alphaVantageKeys.length > 0) {
+        console.log(`🔑 Trying ${this.alphaVantageKeys.length} Alpha Vantage keys...`);
+        priceData = await this.tryAlphaVantageWithMultipleKeys();
+      }
+
+      // If ALL paid APIs failed, throw error (NO HALLUCINATION)
+      if (!priceData) {
+        console.log('❌ ALL paid APIs failed! Cannot fetch real price.');
+        throw new Error('Gold Price Service Unavailable (All APIs failed)');
+      } else {
+        // Enhance the successful API data
+        priceData = await this.enhanceWithPredictions(priceData);
+      }
+
+      // Cache the result
       this.priceCache = {
-        priceData: enhancedData,
+        priceData: priceData,
         timestamp: Date.now(),
-        ttl: 30000 
+        ttl: 30000
       };
 
-      console.log('✅ REAL-TIME Gold price fetched:', enhancedData.price);
-      return enhancedData;
-      
+      console.log('✅ Gold price fetched successfully');
+      return priceData;
+
     } catch (error) {
-      console.error('❌ REAL Gold price fetch failed:', error.message);
-      
-      if (this.priceCache.priceData) {
-        console.log('⚠️ Using stale cached price due to API failure');
-        return this.priceCache.priceData;
-      }
-      
-      return this.getReliableFallbackPrice();
+      console.error('❌ CRITICAL: All gold price methods failed:', error.message);
+      throw new Error('Service temporarily unavailable. Please try again later.');
     }
   }
 
-  async getMultiSourcePrice() {
-    console.log('🟡 Using multi-source price verification...');
-    
-    const sources = [
-      this.getForexAPIPrice(),
-      this.getMetalAPIPrice(),
-     
-      this.getExchangeRateAPIPrice() 
-    ];
+  async tryGoldAPIWithMultipleKeys() {
+    for (let i = 0; i < this.goldAPIKeys.length; i++) {
+      const keyIndex = (this.currentGoldAPIKeyIndex + i) % this.goldAPIKeys.length;
+      const apiKey = this.goldAPIKeys[keyIndex];
 
-   
-    for (const sourcePromise of sources) {
       try {
-        const priceData = await sourcePromise;
-        if (priceData && priceData.price > 1000 && priceData.price < 3500) { 
-          console.log(`✅ Price verified: $${priceData.price} from ${priceData.source}`);
-          return priceData;
-        } else {
-          console.log(`...source ${priceData ? priceData.source : 'unknown'} returned unrealistic price: $${priceData ? priceData.price : 'N/A'}`);
-        }
+        console.log(`...trying GoldAPI key ${keyIndex + 1}/${this.goldAPIKeys.length}`);
+        const priceData = await this.getGoldAPIPrice(apiKey);
+
+        // Update current key index for next rotation
+        this.currentGoldAPIKeyIndex = (keyIndex + 1) % this.goldAPIKeys.length;
+        console.log(`✅ GoldAPI key ${keyIndex + 1} successful!`);
+        return priceData;
+
       } catch (error) {
-        console.log(`...source failed: ${error.message}`);
-        continue; 
+        console.log(`❌ GoldAPI key ${keyIndex + 1} failed: ${error.message}`);
+        // Continue to next key
       }
     }
-    
-    throw new Error('All free price sources failed');
+
+    console.log('❌ All GoldAPI keys failed');
+    return null;
   }
 
-  async getForexAPIPrice() {
-    // This API is free and requires no key
+  async tryAlphaVantageWithMultipleKeys() {
+    for (let i = 0; i < this.alphaVantageKeys.length; i++) {
+      const keyIndex = (this.currentAlphaVantageKeyIndex + i) % this.alphaVantageKeys.length;
+      const apiKey = this.alphaVantageKeys[keyIndex];
+
+      try {
+        console.log(`...trying Alpha Vantage key ${keyIndex + 1}/${this.alphaVantageKeys.length}`);
+        const priceData = await this.getAlphaVantagePrice(apiKey);
+
+        // Update current key index for next rotation
+        this.currentAlphaVantageKeyIndex = (keyIndex + 1) % this.alphaVantageKeys.length;
+        console.log(`✅ Alpha Vantage key ${keyIndex + 1} successful!`);
+        return priceData;
+
+      } catch (error) {
+        console.log(`❌ Alpha Vantage key ${keyIndex + 1} failed: ${error.message}`);
+        // Continue to next key
+      }
+    }
+
+    console.log('❌ All Alpha Vantage keys failed');
+    return null;
+  }
+
+  async getGoldAPIPrice(apiKey) {
     const response = await axios.get(
-      'https://api.fxratesapi.com/latest?base=XAU&symbols=USD',
-      { timeout: 8000 }
+      'https://www.goldapi.io/api/XAU/USD',
+      {
+        headers: { 'x-access-token': apiKey },
+        timeout: 10000
+      }
     );
 
-    if (!response.data || !response.data.rates || !response.data.rates.USD) {
-      throw new Error('fxratesapi returned invalid data');
+    const data = response.data;
+
+    if (!data || !data.price) {
+      throw new Error('Invalid response data');
     }
-    const price = response.data.rates.USD;
-    
+
     return {
       symbol: 'XAUUSD',
-      price: parseFloat(price.toFixed(2)),
-      change: 0,
-      changePercent: 0,
-      high: price * 1.005, // Mock OHLC
-      low: price * 0.995,
-      open: price,
-      previousClose: price,
-      timestamp: new Date().toISOString(),
-      source: 'fxratesapi',
-      reliability: 'high'
+      price: data.price,
+      change: data.ch,
+      changePercent: data.chp,
+      high: data.high_price,
+      low: data.low_price,
+      open: data.open_price,
+      previousClose: data.prev_close_price,
+      timestamp: new Date(data.timestamp * 1000).toISOString(),
+      source: 'goldapi',
+      reliability: 'very_high',
+      rawData: data
     };
   }
 
-  async getMetalAPIPrice() {
-    // This API uses a "free" public key
+  async getAlphaVantagePrice(apiKey) {
     const response = await axios.get(
-      'https.api.metalpriceapi.com/v1/latest?api_key=free&base=XAU&currencies=USD',
-      { timeout: 8000 }
-    );
-
-    if (!response.data || !response.data.rates || !response.data.rates.USD) {
-      throw new Error('metalpriceapi returned invalid data');
-    }
-    const price = response.data.rates.USD;
-    
-    return {
-      symbol: 'XAUUSD',
-      price: parseFloat(price.toFixed(2)),
-      change: 0,
-      changePercent: 0,
-      high: price * 1.008, // Mock OHLC
-      low: price * 0.992,
-      open: price,
-      previousClose: price,
-      timestamp: new Date().toISOString(),
-      source: 'metalpriceapi',
-      reliability: 'medium'
-    };
-  }
-
-  /**
-   * --- NEW FUNCTION ---
-   * This function replaces getCommodityAPIPrice()
-   */
-  async getExchangeRateAPIPrice() {
-    if (!this.exchangeRateKey) {
-      throw new Error('ExchangeRate-API key not provided, skipping');
-    }
-    
-    // This API call converts 1 XAU to USD
-    const response = await axios.get(
-      `https://v6.exchangerate-api.com/v6/${this.exchangeRateKey}/latest/XAU`,
-      { timeout: 8000 }
-    );
-
-    if (!response.data || response.data.result !== 'success' || !response.data.conversion_rates || !response.data.conversion_rates.USD) {
-      throw new Error('ExchangeRate-API returned invalid data');
-    }
-
-    const price = response.data.conversion_rates.USD;
-    
-    return {
-      symbol: 'XAUUSD',
-      price: parseFloat(price.toFixed(2)),
-      change: 0,
-      changePercent: 0,
-      high: price * 1.01, // Mock OHLC
-      low: price * 0.99,
-      open: price,
-      previousClose: price,
-      timestamp: new Date().toISOString(),
-      source: 'exchangerate-api',
-      reliability: 'medium'
-    };
-  }
-
-  // --- REMOVED: getCommodityAPIPrice() ---
-
-  async getAlphaVantagePrice() {
-    // This is a paid/freemium key-based API
-    const response = await axios.get(
-      `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=XAUUSD&apikey=${this.alphaVantageKey}`,
+      `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=XAUUSD&apikey=${apiKey}`,
       { timeout: 10000 }
     );
 
     const data = response.data['Global Quote'];
-    
+
     if (!data || !data['05. price']) {
-      throw new Error('Alpha Vantage returned invalid data');
+      throw new Error('Invalid response data');
     }
-    
+
     return {
       symbol: 'XAUUSD',
       price: parseFloat(data['05. price']),
@@ -204,52 +184,22 @@ class GoldPriceService {
       volume: data['06. volume'] ? parseInt(data['06. volume']) : 0,
       timestamp: new Date().toISOString(),
       source: 'alphavantage',
-      reliability: 'high'
+      reliability: 'high',
+      rawData: data
     };
   }
 
-  async getGoldAPIPrice() {
-    // This is a paid key-based API
-    const response = await axios.get(
-      'https://www.goldapi.io/api/XAU/USD',
-      {
-        headers: { 'x-access-token': this.goldAPIKey },
-        timeout: 10000
-      }
-    );
-
-    const data = response.data;
-
-    if (!data || !data.price) {
-      throw new Error('GoldAPI returned invalid data');
-    }
-    
-    return {
-      symbol: 'XAUUSD',
-      price: data.price,
-      change: data.ch,
-      changePercent: data.chp,
-      high: data.high_price,
-      low: data.low_price,
-      open: data.open_price,
-      previousClose: data.prev_close_price,
-      timestamp: new Date(data.timestamp * 1000).toISOString(),
-      source: 'goldapi',
-      reliability: 'very_high'
-    };
-  }
-
-  // --- All Analysis Functions
 
   async enhanceWithPredictions(priceData) {
     if (!priceData) {
-      throw new Error("Cannot enhance null price data.");
+      throw new Error("Cannot enhance null price data");
     }
-    console.log('🟡 Enhancing price data with logical analysis...');
-    
+
+    console.log('🟡 Enhancing price data with analysis...');
+
     const marketAnalysis = await this.analyzeMarketCondition(priceData);
     const predictions = await this.generatePricePredictions(priceData, marketAnalysis);
-    
+
     return {
       ...priceData,
       marketCondition: marketAnalysis,
@@ -263,7 +213,7 @@ class GoldPriceService {
   async analyzeMarketCondition(priceData) {
     const volatility = Math.abs(priceData.high - priceData.low) / priceData.price;
     const momentum = priceData.changePercent;
-    
+
     let condition, speed, confidence;
 
     if (volatility > 0.015) {
@@ -295,13 +245,11 @@ class GoldPriceService {
     };
   }
 
- 
   async generatePricePredictions(priceData, marketAnalysis) {
     const currentPrice = priceData.price;
     const volatility = marketAnalysis.volatility;
     const momentum = marketAnalysis.momentum;
-    
-    // Logical prediction 
+
     const shortTermFactor = 1 + (momentum / 100) + (volatility * 0.5 * (momentum >= 0 ? 1 : -1));
     const mediumTermFactor = 1 + (momentum / 100) * 3 + (volatility * 1.2 * (momentum >= 0 ? 1 : -1));
     const longTermFactor = 1 + (momentum / 100) * 10 + (volatility * 2 * (momentum >= 0 ? 1 : -1));
@@ -322,11 +270,11 @@ class GoldPriceService {
         factors: ['daily_trend', 'technical_levels', 'market_sentiment']
       },
       longTerm: {
-        timeframe: '1_month',
+        timeframe: '1_week',
         predictedPrice: parseFloat((currentPrice * longTermFactor).toFixed(2)),
         confidence: Math.max(40, 60 - Math.abs(momentum) * 6),
         direction: momentum >= 0 ? 'bullish' : 'bearish',
-        factors: ['monthly_trend', 'fundamental_analysis', 'economic_outlook']
+        factors: ['weekly_trend', 'fundamental_analysis', 'economic_outlook']
       }
     };
   }
@@ -334,7 +282,7 @@ class GoldPriceService {
   calculateVolatility(priceData) {
     const range = priceData.high - priceData.low;
     const volatility = (range / priceData.price) * 100;
-    
+
     return {
       atr: range,
       volatilityPercent: parseFloat(volatility.toFixed(2)),
@@ -345,7 +293,7 @@ class GoldPriceService {
   analyzeTrend(priceData) {
     const change = priceData.change;
     const changePercent = priceData.changePercent;
-    
+
     let trend, strength;
 
     if (changePercent > 0.5) {
@@ -370,7 +318,7 @@ class GoldPriceService {
   getTradingRecommendation(marketAnalysis, predictions) {
     const { condition, speed } = marketAnalysis;
     const shortTermPred = predictions.shortTerm;
-    
+
     let recommendation, riskLevel;
 
     if (condition === 'high_volatility' && speed === 'fast') {
@@ -402,9 +350,9 @@ class GoldPriceService {
       moderate_volatility: `Market moving ${speed} with normal fluctuations`,
       low_volatility: `Market moving ${speed} with low activity`
     };
-    
+
     const momentumDesc = momentum > 0 ? 'bullish momentum' : momentum < 0 ? 'bearish pressure' : 'sideways movement';
-    
+
     return `${descriptions[condition]}. Showing ${momentumDesc}.`;
   }
 
@@ -415,25 +363,25 @@ class GoldPriceService {
       'Consider selling opportunities': 'Bearish momentum with technical confirmation.',
       'Hold and monitor': 'Market conditions unclear. Wait for stronger signals.'
     };
-    
+
     return reasons[recommendation] || 'Monitor market for clearer direction.';
   }
 
-  
-  async getReliableFallbackPrice() {
-    console.log('🟡 Using reliable fallback price... No real-time data available.');
-    return null;
+  analyzeVolatilityCondition(range) {
+    const volatility = range / 2000;
+    if (volatility > 0.015) return 'high_volatility';
+    if (volatility > 0.008) return 'moderate_volatility';
+    return 'low_volatility';
   }
 
   isPriceCacheValid() {
     if (!this.priceCache.priceData || !this.priceCache.timestamp) {
       return false;
     }
-    
+
     const cacheAge = Date.now() - this.priceCache.timestamp;
     return cacheAge < this.priceCache.ttl;
   }
 }
 
 module.exports = new GoldPriceService();
-
