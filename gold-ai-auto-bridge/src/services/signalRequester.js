@@ -8,7 +8,7 @@ const axios = require('axios');
 class SignalRequester {
     constructor() {
         // IMPORTANT: This URL will be replaced with your Render URL when deployed
-        this.goldMentorAPIUrl = process.env.GOLD_MENTOR_API_URL || 'http://localhost:3000';
+        this.goldMentorAPIUrl = process.env.GOLD_MENTOR_API_URL || 'https://goldai-mentor-pro-4.onrender.com';
 
         // Configuration for what signals to request
         this.signalConfig = {
