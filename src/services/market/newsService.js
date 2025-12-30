@@ -2,49 +2,49 @@ const axios = require('axios');
 
 class NewsService {
   constructor() {
-   
+
     this.newsAPIKey = process.env.NEWS_API_KEY;
     this.finnhubKey = process.env.FINNHUB_API_KEY;
     this.alphaVantageKey = process.env.ALPHA_VANTAGE_API_KEY;
 
-   
+
     this.gnewsKey = process.env.GNEWS_API_KEY;
-   
+
   }
 
   async getGoldNews() {
     try {
       console.log('🟡 Fetching market news...');
-      
+
       let newsData;
 
-     
+
       if (this.newsAPIKey) {
         console.log('...using NewsAPI');
         newsData = await this.getEnhancedNewsAPI();
       } else if (this.finnhubKey) {
         console.log('...using Finnhub');
         newsData = await this.getEnhancedFinnhubNews();
-      } else if (this.alphaVantageKey) { 
+      } else if (this.alphaVantageKey) {
         console.log('...using Alpha Vantage');
         newsData = await this.getAlphaVantageNews();
       } else {
-        
+
         console.log('...No paid keys found. Using Enhanced Free News (Fallback).');
         newsData = await this.getEnhancedFreeNews();
       }
 
       console.log('✅ News fetched successfully');
       return newsData;
-      
+
     } catch (error) {
       console.error('❌ Top-level News fetch failed:', error.message);
-      return this.getFallbackNews(); 
+      return this.getFallbackNews();
     }
   }
 
   async getEnhancedNewsAPI() {
-   
+
     const queries = [
       'gold OR XAUUSD OR "precious metals" OR "gold price"',
       'USD OR "US dollar" OR "dollar index" OR DXY OR "Federal Reserve" OR FOMC',
@@ -54,15 +54,14 @@ class NewsService {
 
     const allArticles = [];
 
-    for (let query of queries) {
-      try {
-        const response = await axios.get(
-          `https://newsapi.org/v2/everything?q=${encodeURIComponent(query)}&sortBy=publishedAt&language=en&pageSize=5&apiKey=${this.newsAPIKey}`,
-          { timeout: 10000 }
-        );
-
+    // OPTIMIZATION: Run queries in parallel to save time (Critical for Render 30s timeout)
+    const promises = queries.map(query =>
+      axios.get(
+        `https://newsapi.org/v2/everything?q=${encodeURIComponent(query)}&sortBy=publishedAt&language=en&pageSize=5&apiKey=${this.newsAPIKey}`,
+        { timeout: 8000 } // Reduced timeout per request
+      ).then(response => {
         if (response.data.articles) {
-          allArticles.push(...response.data.articles.map(article => ({
+          return response.data.articles.map(article => ({
             title: article.title,
             summary: article.description,
             source: article.source.name,
@@ -72,14 +71,19 @@ class NewsService {
             category: this.categorizeArticle(article.title + ' ' + article.description),
             impact: this.assessImpactLevel(article.title + ' ' + article.description),
             query: query
-          })));
+          }));
         }
-      } catch (error) {
-        console.log(`Query failed: ${query}`, error.message);
-      }
-    }
+        return [];
+      }).catch(err => {
+        console.log(`Query failed: ${query}`, err.message);
+        return [];
+      })
+    );
 
-   
+    const results = await Promise.all(promises);
+    results.forEach(articles => allArticles.push(...articles));
+
+
     const uniqueArticles = this.removeDuplicates(allArticles).slice(0, 15);
     const categorizedArticles = this.categorizeArticles(uniqueArticles);
 
@@ -181,12 +185,12 @@ class NewsService {
     };
   }
 
-  
+
   async getEnhancedFreeNews() {
     try {
-     
+
       const sources = [
-        this.getGNewsData(),    
+        this.getGNewsData(),
       ];
 
       const results = await Promise.allSettled(sources);
@@ -228,7 +232,7 @@ class NewsService {
       console.log('...GNews API key not configured, skipping GNews');
       return [];
     }
-    
+
     try {
       const query = 'gold OR XAUUSD OR "Federal Reserve" OR inflation OR "precious metals" OR FOMC OR CPI OR NFP';
       const response = await axios.get(
@@ -262,7 +266,7 @@ class NewsService {
   categorizeArticle(text) {
     if (!text) return 'general';
     const lowerText = text.toLowerCase();
-    
+
     // --- IMPORTANT: Added FOMC, NFP, CPI for Rule A ---
     if (lowerText.includes('fomc') || lowerText.includes('fed decision') || lowerText.includes('rate decision')) {
       return 'monetary_policy';
@@ -315,26 +319,26 @@ class NewsService {
   analyzeEnhancedSentiment(text) {
     if (!text) return 'neutral'; // Safety check
     const lowerText = text.toLowerCase();
-    
+
     const veryBullishWords = ['surge', 'rally', 'skyrocket', 'soar', 'breakout', 'bull run'];
     const bullishWords = ['rise', 'gain', 'up', 'positive', 'strong', 'buy', 'recovery'];
     const bearishWords = ['drop', 'fall', 'decline', 'down', 'negative', 'weak', 'sell'];
     const veryBearishWords = ['crash', 'plunge', 'collapse', 'tumble', 'bear market'];
-    
+
     let score = 0;
-    
+
     veryBullishWords.forEach(word => {
       if (lowerText.includes(word)) score += 2;
     });
-    
+
     bullishWords.forEach(word => {
       if (lowerText.includes(word)) score += 1;
     });
-    
+
     bearishWords.forEach(word => {
       if (lowerText.includes(word)) score -= 1;
     });
-    
+
     veryBearishWords.forEach(word => {
       if (lowerText.includes(word)) score -= 2;
     });
@@ -349,21 +353,21 @@ class NewsService {
   assessImpactLevel(text) {
     if (!text) return 'low'; // Safety check
     const lowerText = text.toLowerCase();
-    
+
     // --- IMPORTANT: Added FOMC, NFP, CPI for Rule A ---
     const highImpactWords = ['fomc', 'nfp', 'cpi', 'fed decision', 'rate decision', 'jobs report', 'crisis', 'war', 'federal reserve'];
     const mediumImpactWords = ['inflation data', 'report', 'meeting', 'speech', 'tension', 'sanctions', 'central bank'];
-    
+
     // Check for high impact first
     for (const word of highImpactWords) {
       if (lowerText.includes(word)) return 'high';
     }
-    
+
     // Then check for medium impact
     for (const word of mediumImpactWords) {
       if (lowerText.includes(word)) return 'medium';
     }
-    
+
     return 'low';
   }
 
@@ -372,25 +376,25 @@ class NewsService {
     const allArticles = Object.values(categorizedArticles).flat();
 
     if (!allArticles || allArticles.length === 0) return ['general market'];
-    
+
     allArticles.forEach(article => {
       const text = (article.title + ' ' + (article.summary || '')).toLowerCase();
-      
+
       const keywords = [
-        'fed policy', 'interest rates', 'inflation data', 'usd strength', 
+        'fed policy', 'interest rates', 'inflation data', 'usd strength',
         'dollar index', 'safe haven', 'geopolitical risk', 'central banks',
         'economic data', 'market sentiment', 'technical levels', 'support resistance',
         'gold demand', 'mining output', 'etf flows', 'investor sentiment',
         'fomc', 'cpi', 'nfp' // Add high impact
       ];
-      
+
       keywords.forEach(keyword => {
         if (text.includes(keyword)) {
           themes.add(keyword);
         }
       });
     });
-    
+
     return Array.from(themes).slice(0, 8);
   }
 
@@ -399,7 +403,7 @@ class NewsService {
     if (allArticles.length === 0) return 'neutral';
 
     const sentiments = allArticles.map(a => a.sentiment);
-    
+
     const sentimentCount = {
       very_bullish: 0,
       bullish: 0,
@@ -407,7 +411,7 @@ class NewsService {
       bearish: 0,
       very_bearish: 0
     };
-    
+
     sentiments.forEach(sentiment => {
       if (sentimentCount.hasOwnProperty(sentiment)) {
         sentimentCount[sentiment]++;
@@ -415,7 +419,7 @@ class NewsService {
         sentimentCount.neutral++; // Default to neutral if sentiment is unusual
       }
     });
-    
+
     const total = allArticles.length;
     const netSentiment = (
       (sentimentCount.very_bullish * 2) +
@@ -424,10 +428,10 @@ class NewsService {
       (sentimentCount.bearish * -1) +
       (sentimentCount.very_bearish * -2)
     );
-    
+
     if (total === 0) return 'neutral';
     const averageSentiment = netSentiment / total;
-    
+
     if (averageSentiment > 0.5) return 'very_bullish';
     if (averageSentiment > 0.1) return 'bullish';
     if (averageSentiment < -0.5) return 'very_bearish';
@@ -439,12 +443,12 @@ class NewsService {
     if (!articles || !articles.currency_markets || !articles.monetary_policy) {
       return this.getFallbackNews().usdAnalysis; // Return fallback object
     }
-    
+
     const usdArticles = [...articles.currency_markets, ...articles.monetary_policy];
     const sentiment = this.calculateEnhancedSentiment({ usd: usdArticles });
-    
+
     let strength, outlook;
-    
+
     if (sentiment === 'very_bullish' || sentiment === 'bullish') {
       strength = 'strong';
       outlook = 'Appreciating against major currencies';
@@ -455,7 +459,7 @@ class NewsService {
       strength = 'stable';
       outlook = 'Trading within normal ranges';
     }
-    
+
     return {
       strength: strength,
       outlook: outlook,
@@ -467,7 +471,7 @@ class NewsService {
 
   async analyzeGoldFundamentals(articles) {
     if (!articles || !articles.monetary_policy) {
-       return this.getFallbackNews().goldFundamentals; // Return fallback object
+      return this.getFallbackNews().goldFundamentals; // Return fallback object
     }
 
     const fundamentalArticles = [
@@ -476,9 +480,9 @@ class NewsService {
       ...(articles.geopolitical || []),
       ...(articles.safe_haven || [])
     ];
-    
+
     const sentiment = this.calculateEnhancedSentiment({ fundamentals: fundamentalArticles });
-    
+
     return {
       sentiment: sentiment,
       demandDrivers: this.extractDemandDrivers(articles),
@@ -492,17 +496,17 @@ class NewsService {
   extractUSDDrivers(usdArticles) {
     const drivers = new Set();
     if (!usdArticles) return ['Economic Data'];
-    
+
     usdArticles.forEach(article => {
       const text = (article.title + ' ' + (article.summary || '')).toLowerCase();
-      
+
       if (text.includes('interest rate')) drivers.add('Interest Rate Differentials');
       if (text.includes('inflation')) drivers.add('Inflation Expectations');
       if (text.includes('economic growth')) drivers.add('Economic Growth Outlook');
       if (text.includes('safe haven')) drivers.add('Safe-Haven Flows');
       if (text.includes('fed policy')) drivers.add('Federal Reserve Policy');
     });
-    
+
     if (drivers.size === 0) drivers.add('Economic Data');
     return Array.from(drivers);
   }
@@ -518,7 +522,7 @@ class NewsService {
       };
     } else if (usdStrength === 'weak') {
       return {
-        correlation: 'positive', 
+        correlation: 'positive',
         impact: 'Bullish for gold prices',
         strength: 'strong',
         explanation: 'Weak USD makes gold cheaper for other currencies'
@@ -540,14 +544,14 @@ class NewsService {
 
     allArticles.forEach(article => {
       const text = (article.title + ' ' + (article.summary || '')).toLowerCase();
-      
+
       if (text.includes('inflation hedge')) drivers.add('Inflation Hedging');
       if (text.includes('safe haven')) drivers.add('Safe-Haven Demand');
       if (text.includes('central bank') && text.includes('buy')) drivers.add('Central Bank Purchases');
       if (text.includes('jewelry') || text.includes('physical')) drivers.add('Physical Demand');
       if (text.includes('etf') || text.includes('investment')) drivers.add('Investment Demand');
     });
-    
+
     if (drivers.size === 0) drivers.add('Market Monitoring');
     return Array.from(drivers);
   }
@@ -559,12 +563,12 @@ class NewsService {
 
     allArticles.forEach(article => {
       const text = (article.title + ' ' + (article.summary || '')).toLowerCase();
-      
+
       if (text.includes('mining') || text.includes('production')) factors.add('Mining Production');
       if (text.includes('recycling')) factors.add('Recycling Supply');
       if (text.includes('reserve') || text.includes('inventory')) factors.add('Central Bank Sales');
     });
-    
+
     if (factors.size === 0) factors.add('Standard Supply');
     return Array.from(factors);
   }
@@ -576,9 +580,9 @@ class NewsService {
     const inflationArticles = articles.inflation.length;
     const policyArticles = articles.monetary_policy.length;
     const geopoliticalArticles = articles.geopolitical.length;
-    
+
     let environment, description;
-    
+
     if (inflationArticles > policyArticles && inflationArticles > 2) {
       environment = 'inflationary';
       description = 'High inflation concerns dominating market sentiment';
@@ -592,7 +596,7 @@ class NewsService {
       environment = 'stable';
       description = 'Relatively stable macroeconomic conditions';
     }
-    
+
     return { environment, description };
   }
 
@@ -602,7 +606,7 @@ class NewsService {
     }
     const safeHavenArticles = articles.safe_haven.length;
     const geopoliticalArticles = articles.geopolitical.length;
-    
+
     if (safeHavenArticles > 2 || geopoliticalArticles > 2) {
       return {
         appetite: 'risk_off',
@@ -611,7 +615,7 @@ class NewsService {
       };
     } else {
       return {
-        appetite: 'risk_on', 
+        appetite: 'risk_on',
         level: 'moderate',
         description: 'Normal risk appetite in markets'
       };
@@ -622,18 +626,18 @@ class NewsService {
     const drivers = this.extractDemandDrivers(articles);
     const macro = this.assessMacroEnvironment(articles);
     const risk = this.assessRiskAppetite(articles);
-    
+
     return `Gold fundamentals show ${sentiment} sentiment. Key drivers: ${drivers.join(', ')}. ` +
-           `Macro environment: ${macro.description}. Risk appetite: ${risk.description}.`;
+      `Macro environment: ${macro.description}. Risk appetite: ${risk.description}.`;
   }
 
   async generateMarketSummary(categorizedArticles) {
     const allArticles = Object.values(categorizedArticles).flat();
     const totalArticles = allArticles.length;
-    
+
     const highImpactCount = allArticles.filter(a => a.impact === 'high').length;
     const mediumImpactCount = allArticles.filter(a => a.impact === 'medium').length;
-    
+
     return {
       totalNews: totalArticles,
       highImpactNews: highImpactCount,
@@ -649,14 +653,14 @@ class NewsService {
     const categoryCounts = Object.entries(categorizedArticles)
       .map(([category, articles]) => ({ category, count: articles.length }))
       .sort((a, b) => b.count - a.count);
-    
+
     return categoryCounts[0]?.category || 'general';
   }
 
   assessMarketMood(categorizedArticles) {
     const sentiment = this.calculateEnhancedSentiment(categorizedArticles);
     const riskAppetite = this.assessRiskAppetite(categorizedArticles);
-    
+
     if (sentiment === 'very_bullish' && riskAppetite.appetite === 'risk_off') {
       return 'bullish_safe_haven';
     } else if (sentiment === 'bullish') {
@@ -673,7 +677,7 @@ class NewsService {
   getTradingImplications(categorizedArticles) {
     const mood = this.assessMarketMood(categorizedArticles);
     const usdAnalysis = this.analyzeUSDStrength(categorizedArticles);
-    
+
     const implications = {
       bullish_safe_haven: 'Favorable for gold longs, focus on risk management',
       optimistic: 'Consider long positions with proper stops',
@@ -681,20 +685,20 @@ class NewsService {
       pessimistic: 'Avoid long positions, consider shorts or stay out',
       neutral: 'Range trading likely, use support/resistance levels'
     };
-    
+
     return implications[mood] || 'Monitor market for direction';
   }
 
   getUpdateFrequency(articles) {
     if (articles.length === 0) return 'low';
-    
+
     const now = new Date();
     const recentArticles = articles.filter(article => {
       if (!article.publishedAt) return false;
       const articleTime = new Date(article.publishedAt);
       return (now - articleTime) < 2 * 60 * 60 * 1000; // 2 hours
     });
-    
+
     if (recentArticles.length > 8) return 'very_high';
     if (recentArticles.length > 4) return 'high';
     if (recentArticles.length > 2) return 'medium';
@@ -715,7 +719,7 @@ class NewsService {
 
   getFallbackNews() {
     console.log('🟡 Using fallback market news...');
-    
+
     const fallbackArticles = [
       {
         title: "Gold Market Monitoring Key Economic Indicators",
@@ -763,7 +767,7 @@ class NewsService {
         },
         riskAppetite: {
           appetite: "risk_on",
-          level: "moderate", 
+          level: "moderate",
           description: "Normal market conditions"
         },
         summary: "Markets awaiting clearer directional signals"
