@@ -115,6 +115,31 @@ class DatabaseService {
     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   }
 
+  async getLatestSignal(timeframe, balanceCategory) {
+    try {
+      // Query specific timeframe and balance category
+      // Note: Requires a composite index in Firestore (timeframe ASC, balanceCategory ASC, createdAt DESC)
+      const snapshot = await db.collection(SIGNAL_COLLECTION)
+        .where('timeframe', '==', timeframe)
+        .where('balanceCategory', '==', balanceCategory)
+        .orderBy('createdAt', 'desc')
+        .limit(1)
+        .get();
+
+      if (snapshot.empty) {
+        return null;
+      }
+
+      const doc = snapshot.docs[0];
+      return { id: doc.id, ...doc.data() };
+    } catch (error) {
+      console.error('Error fetching latest signal:', error);
+      // Fallback: fetch most recent and filter manually (slower but works without index primarily)
+      const recent = await this.getRecentSignals(50);
+      return recent.find(s => s.timeframe === timeframe && s.balanceCategory === balanceCategory);
+    }
+  }
+
   // --- STATS/ADMIN METHOD (Simplified for Firestore) ---
 
   async getDatabaseStats() {

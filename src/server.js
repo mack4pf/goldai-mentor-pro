@@ -54,6 +54,10 @@ const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
   }
 });
 
+// Start Cron Service for Background Signal Generation
+const cronService = require('./services/cronService');
+cronService.start();
+
 // Bot startup message
 console.log('🟡 Starting GoldAI Mentor Pro Bot...');
 console.log('✅ All services (Gemini/DeepSeek AI) initialized!');
