@@ -15,12 +15,30 @@ class OpenAIService {
     };
     this.priceAccuracyThreshold = 0.02; // Moved from AnalysisService
 
-    if (process.env.GEMINI_API_KEY) {
-      this.gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-      console.log('✅ Gemini AI Service Initialized');
-    } else {
-      console.warn('⚠️ Gemini API key not found. Gemini will be skipped.');
+    // Load multiple Gemini API keys for rotation
+    this.geminiKeys = [];
+    for (let i = 1; i <= 10; i++) {
+      const key = process.env[`GEMINI_API_KEY_${i}`] || process.env.GEMINI_API_KEY;
+      if (key && !this.geminiKeys.includes(key)) {
+        this.geminiKeys.push(key);
+      }
     }
+
+    this.currentKeyIndex = 0;
+
+    if (this.geminiKeys.length > 0) {
+      console.log(`✅ Gemini AI Service Initialized with ${this.geminiKeys.length} API key(s)`);
+    } else {
+      console.warn('⚠️ No Gemini API keys found. Gemini will be skipped.');
+    }
+  }
+
+  // Get next Gemini key in rotation
+  getNextGeminiKey() {
+    if (this.geminiKeys.length === 0) return null;
+    const key = this.geminiKeys[this.currentKeyIndex];
+    this.currentKeyIndex = (this.currentKeyIndex + 1) % this.geminiKeys.length;
+    return key;
   }
 
   // ----------------------------------------------------------------------
@@ -91,7 +109,7 @@ class OpenAIService {
   // ----------------------------------------------------------------------
 
   async callAIProviders(prompt, marketData, timeframe, userContext) {
-    if (this.gemini) {
+    if (this.geminiKeys.length > 0) {
       try {
         console.log('🟡 Trying Gemini (Primary)...');
         const signal = await this.callGemini(prompt, marketData, timeframe, userContext);
@@ -102,7 +120,7 @@ class OpenAIService {
         console.log('⚠️ Failing over to DeepSeek...');
       }
     } else {
-      console.log('🟡 Gemini skipped (no API key). Trying DeepSeek...');
+      console.log('🟡 Gemini skipped (no API keys). Trying DeepSeek...');
     }
 
     if (this.deepseek.apiKey) {
@@ -155,16 +173,19 @@ class OpenAIService {
   }
 
   async callGemini(prompt, marketData, timeframe, userContext) {
-    if (!this.gemini) throw new Error('Gemini API key not configured or SDK not initialized');
+    const apiKey = this.getNextGeminiKey();
+    if (!apiKey) throw new Error('No Gemini API keys configured');
 
-    const model = this.gemini.getGenerativeModel({
-      model: "gemini-2.5-flash-lite",
+    const gemini = new GoogleGenerativeAI(apiKey);
+    const model = gemini.getGenerativeModel({
+      model: "gemini-2.0-flash-exp",
       systemInstruction: this.getSystemPrompt()
     });
 
     const result = await model.generateContent(prompt);
     const analysis = result.response.text();
 
+    console.log(`   🔑 Used Gemini key #${this.currentKeyIndex} of ${this.geminiKeys.length}`);
     return this.parseProfessionalSignal(analysis, marketData, timeframe, userContext, 'gemini');
   }
 
