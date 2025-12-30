@@ -56,6 +56,7 @@ const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
 
 // Start Cron Service for Background Signal Generation
 const cronService = require('./services/cronService');
+cronService.setBotInstance(bot); // Link bot for broadcasts
 cronService.start();
 
 // Bot startup message
