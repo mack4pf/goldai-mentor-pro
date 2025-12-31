@@ -8,28 +8,39 @@ const newsService = require('./market/newsService');
 
 class OpenAIService {
   constructor() {
-    this.deepseek = {
-      baseURL: 'https://api.deepseek.com/v1',
-      apiKey: process.env.DEEPSEEK_API_KEY,
-      model: 'deepseek-chat'
-    };
-    this.priceAccuracyThreshold = 0.02; // Moved from AnalysisService
+    this.priceAccuracyThreshold = 0.02;
 
     // Load multiple Gemini API keys for rotation
     this.geminiKeys = [];
-    for (let i = 1; i <= 10; i++) {
-      const key = process.env[`GEMINI_API_KEY_${i}`] || process.env.GEMINI_API_KEY;
-      if (key && !this.geminiKeys.includes(key)) {
+
+    // Explicitly check for exact environment variable names as provided by user
+    const possibleKeys = [
+      process.env.GEMINI_API_KEY,    // Main key
+      process.env.GEMINI_API_KEY_1,
+      process.env.GEMINI_API_KEY_2,
+      process.env.GEMINI_API_KEY_3,
+      process.env.GEMINI_API_KEY_4,
+      process.env.GEMINI_API_KEY_5,
+      process.env.GEMINI_API_KEY_6,
+      process.env.GEMINI_API_KEY_7,
+      process.env.GEMINI_API_KEY_8,
+      process.env.GEMINI_API_KEY_9,
+      process.env.GEMINI_API_KEY_10
+    ];
+
+    // Filter unique, valid keys
+    possibleKeys.forEach(key => {
+      if (key && key.trim() !== '' && !this.geminiKeys.includes(key)) {
         this.geminiKeys.push(key);
       }
-    }
+    });
 
     this.currentKeyIndex = 0;
 
     if (this.geminiKeys.length > 0) {
-      console.log(`✅ Gemini AI Service Initialized with ${this.geminiKeys.length} API key(s)`);
+      console.log(`✅ Gemini AI Service Initialized with ${this.geminiKeys.length} unique API key(s)`);
     } else {
-      console.warn('⚠️ No Gemini API keys found. Gemini will be skipped.');
+      console.warn('⚠️ CRITICAL: No Gemini API keys found in environment variables.');
     }
   }
 
@@ -42,101 +53,49 @@ class OpenAIService {
   }
 
   // ----------------------------------------------------------------------
-  // 1. TOP-LEVEL ENTRY POINT (ORCHESTRATION & VALIDATION)
+  // 1. TOP-LEVEL ENTRY POINT
   // ----------------------------------------------------------------------
 
   async generateTradingSignal(timeframe = '1h', userContext = null, balanceCategory = 'default') {
     try {
       console.log(`🟡 Generating signal via AI Core for ${timeframe} timeframe with balance tier: ${balanceCategory}...`);
 
-      // 1. ORCHESTRATION: Fetching data from primary services
       const [goldPriceData, newsData] = await Promise.all([
         this.getValidatedGoldPrice(),
         newsService.getGoldNews()
       ]);
 
-      // 2. VALIDATION & DATA COMPILATION
-      const priceAccuracy = await this.validatePriceAccuracy(goldPriceData);
-      if (!priceAccuracy.isAccurate) {
-        console.warn(`⚠️ Price accuracy issue: ${priceAccuracy.message}`);
-      }
-
       const marketData = {
-        goldPrice: { ...goldPriceData, accuracy: priceAccuracy },
+        goldPrice: goldPriceData,
         news: newsData,
-        marketStructure: this.getNeutralMarketStructure(),
-        priceAccuracy: priceAccuracy,
         timestamp: new Date().toISOString()
       };
 
-      // 3. PRE-AI VALIDATION
-      const preAnalysis = await this.preSignalValidation(marketData, timeframe);
-
-      if (!preAnalysis.shouldProceed) {
-        console.log(`🟡 Signal rejected in pre-validation: ${preAnalysis.reason}`);
-        // SAFETY: Return safe HOLD signal
-        return this.getHoldSignal(timeframe, preAnalysis.reason, marketData);
+      // Direct fallback if price is missing
+      if (!goldPriceData || !goldPriceData.price) {
+        return this.getHoldSignal(timeframe, "Gold price unavailable", marketData);
       }
 
-      // 4. DELEGATION (AI Processing)
       const prompt = await this.buildProfessionalTradingPrompt(
-        marketData, timeframe, userContext, preAnalysis.confirmations, balanceCategory
+        marketData, timeframe, userContext, null, balanceCategory
       );
 
-      const aiSignal = await this.callAIProviders(prompt, marketData, timeframe, userContext);
-
-      const comprehensiveSignal = {
-        ...aiSignal,
-        marketData: marketData,
-        preValidation: preAnalysis,
-        userContext: userContext,
-        timestamp: new Date().toISOString(),
-        signalQuality: this.calculateSignalQuality(aiSignal, preAnalysis)
-      };
-
-      console.log(`✅ Professional signal generated: ${aiSignal.signal} (${aiSignal.confidence}%) - Quality: ${comprehensiveSignal.signalQuality}/10`);
-      return comprehensiveSignal;
+      // Exclusive use of Gemini
+      return await this.callGemini(prompt, marketData, timeframe, userContext);
 
     } catch (error) {
       console.error('❌ CRITICAL SIGNAL FAILURE:', error.message);
-      // SAFETY: Return safe FALLBACK signal on critical failure
       return this.getFallbackSignal(timeframe, error.message);
     }
   }
 
   // ----------------------------------------------------------------------
-  // 2. AI PROVIDER CALLERS
+  // 2. AI PROVIDER (GEMINI ONLY)
   // ----------------------------------------------------------------------
 
   async callAIProviders(prompt, marketData, timeframe, userContext) {
-    if (this.geminiKeys.length > 0) {
-      try {
-        console.log('🟡 Trying Gemini (Primary)...');
-        const signal = await this.callGemini(prompt, marketData, timeframe, userContext);
-        console.log('✅ Gemini succeeded!');
-        return signal;
-      } catch (geminiError) {
-        console.error('❌ Gemini (Primary) failed:', geminiError.message);
-        console.log('⚠️ Failing over to DeepSeek...');
-      }
-    } else {
-      console.log('🟡 Gemini skipped (no API keys). Trying DeepSeek...');
-    }
-
-    if (this.deepseek.apiKey) {
-      try {
-        console.log('🟡 Trying DeepSeek (Fallback)...');
-        const signal = await this.callDeepSeek(prompt, marketData, timeframe, userContext);
-        console.log('✅ DeepSeek (Fallback) succeeded!');
-        return signal;
-      } catch (deepSeekError) {
-        console.error('❌ DeepSeek (Fallback) failed:', deepSeekError.message);
-        // CRITICAL: Throw final error if both fail
-        throw new Error(`AI Signal Generation failed. DeepSeek (404/Auth?) Error: ${deepSeekError.message}`);
-      }
-    }
-
-    throw new Error('AI Signal Generation failed: No fallback AI is configured or both services failed.');
+    // Deprecated wrapper, redirects to callGemini
+    return this.callGemini(prompt, marketData, timeframe, userContext);
   }
 
   async callDeepSeek(prompt, marketData, timeframe, userContext) {
@@ -173,12 +132,16 @@ class OpenAIService {
   }
 
   async callGemini(prompt, marketData, timeframe, userContext) {
-    const models = ["gemini-2.0-flash-exp", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"];
+    // Extensive list of models to ensure we find ONE that works.
+    const models = [
+      "gemini-2.5-flash",      // Latest stable, balanced model[citation:1][citation:2]
+      "gemini-2.5-flash-lite", // Fastest & most cost-efficient[citation:1][citation:8]
+      "gemini-2.0-flash-001",  // Stable, widely available workhorse model[citation:4]
+      "gemini-2.5-pro"
+    ];
     let lastError = null;
 
     // Try each key in the rotation
-    // We limit attempts to the number of keys we have to ensure we try a full rotation if needed
-    // but avoid infinite loops.
     const maxKeyAttempts = Math.max(this.geminiKeys.length, 1);
 
     for (let i = 0; i < maxKeyAttempts; i++) {
@@ -188,11 +151,11 @@ class OpenAIService {
       // For each key, try our preferred models in order
       for (const modelName of models) {
         try {
-          // Only log the attempt if it's the first model or a retry
-          if (i === 0 && modelName === models[0]) {
-            console.log(`   🔄 Trying Gemini... (Key #${this.currentKeyIndex}, Model: ${modelName})`);
+          // Logging
+          if (modelName === models[0]) {
+            console.log(`   🔄 Attempting Key #${this.currentKeyIndex} with ${modelName}...`);
           } else {
-            console.log(`   ⚠️ Retry: Switching to Key #${this.currentKeyIndex}, Model: ${modelName}...`);
+            console.log(`   📉 Fallback: Key #${this.currentKeyIndex} -> ${modelName}...`);
           }
 
           const gemini = new GoogleGenerativeAI(apiKey);
@@ -204,26 +167,30 @@ class OpenAIService {
           const result = await model.generateContent(prompt);
           const analysis = result.response.text();
 
-          console.log(`   ✅ Gemini Success! (Used Key #${this.currentKeyIndex}, Model: ${modelName})`);
+          console.log(`   ✅ Gemini Success! (Key: #${this.currentKeyIndex}, Model: ${modelName})`);
           return this.parseProfessionalSignal(analysis, marketData, timeframe, userContext, 'gemini');
 
         } catch (error) {
           lastError = error;
           const isQuotaError = error.message.includes('429') || error.message.includes('Quota') || error.message.includes('Resource has been exhausted');
+          const isNotFoundError = error.message.includes('404') || error.message.includes('not found');
 
           if (isQuotaError) {
-            console.warn(`   ⚠️ Quota limit on Key #${this.currentKeyIndex}. Rotating key...`);
-            // Break the model loop to try the NEXT key immediately
-            break;
+            console.warn(`   ⚠️ Quota/Rate Limit on Key #${this.currentKeyIndex} (${modelName}): ${error.message.split(']')[0]}]`);
+            // IMPORTANT: Do NOT break here. We want to try the NEXT model (1.5-flash) on this SAME key.
+          } else if (isNotFoundError) {
+            console.warn(`   ⚠️ Model Not Found on Key #${this.currentKeyIndex} (${modelName}). trying next model...`);
+          } else {
+            console.warn(`   ⚠️ unexpected Error on Key #${this.currentKeyIndex} (${modelName}): ${error.message}`);
           }
 
-          // If it's not a quota error (e.g. 404 Model Not Found), we try the next model on the SAME key
-          console.warn(`   ⚠️ Model ${modelName} failed on Key #${this.currentKeyIndex}: ${error.message}`);
+          // Reduced delay for faster failover
+          await new Promise(resolve => setTimeout(resolve, 200));
         }
       }
     }
 
-    throw new Error(`All Gemini attempts failed. Last error: ${lastError?.message}`);
+    throw new Error(`All Gemini attempts failed across ${this.geminiKeys.length} keys. Last error: ${lastError?.message}`);
   }
 
   // ----------------------------------------------------------------------
