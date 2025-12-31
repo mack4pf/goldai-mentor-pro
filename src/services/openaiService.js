@@ -137,7 +137,8 @@ class OpenAIService {
       "gemini-2.5-flash",      // Latest stable, balanced model[citation:1][citation:2]
       "gemini-2.5-flash-lite", // Fastest & most cost-efficient[citation:1][citation:8]
       "gemini-2.0-flash-001",  // Stable, widely available workhorse model[citation:4]
-      "gemini-2.5-pro"
+      "gemini-2.5-pro",
+      "gemini-1.5-flash"       // SAFETY FALLBACK: High limits
     ];
     let lastError = null;
 
@@ -184,8 +185,8 @@ class OpenAIService {
             console.warn(`   ⚠️ unexpected Error on Key #${this.currentKeyIndex} (${modelName}): ${error.message}`);
           }
 
-          // Reduced delay for faster failover
-          await new Promise(resolve => setTimeout(resolve, 200));
+          // Increased delay to cool down the API and prevent cascading failures
+          await new Promise(resolve => setTimeout(resolve, 1500));
         }
       }
     }
