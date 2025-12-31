@@ -1,11 +1,22 @@
 
+const { OpenAI } = require('openai');
 require('dotenv').config();
-const openAIService = require('./src/services/openaiService');
+const openaiService = require('./src/services/openaiService');
 
-async function testSignal() {
+async function testSignalGeneration() {
+    console.log("🚀 Starting AI Signal Generation Test...");
+
     try {
-        console.log("🚀 Starting AI Signal Generation Test...");
-        const signal = await openAIService.generateTradingSignal('1h', { balance: 50000, riskTier: 'standard' }, '1k_plus');
+        // Mock user context
+        const userContext = {
+            id: 'test_user',
+            balance: 50000,
+            riskTier: 'standard'
+        };
+
+        // Generate Signal
+        const signal = await openaiService.generateTradingSignal('1h', userContext, '1k_plus');
+
         console.log("\n✅ Test Result:");
         console.log("------------------------------------------");
         console.log("Signal:", signal.signal);
@@ -20,9 +31,10 @@ async function testSignal() {
         console.log("------------------------------------------");
         console.log("Context:", signal.marketContext);
         console.log("------------------------------------------");
+
     } catch (error) {
-        console.error("❌ Test Failed:", error.message);
+        console.error("\n❌ Test Failed:", error.message);
     }
 }
 
-testSignal();
+testSignalGeneration();

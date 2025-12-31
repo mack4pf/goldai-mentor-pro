@@ -137,8 +137,7 @@ class OpenAIService {
       "gemini-2.5-flash",      // Latest stable, balanced model[citation:1][citation:2]
       "gemini-2.5-flash-lite", // Fastest & most cost-efficient[citation:1][citation:8]
       "gemini-2.0-flash-001",  // Stable, widely available workhorse model[citation:4]
-      "gemini-2.5-pro",
-      "gemini-1.5-flash"       // SAFETY FALLBACK: High limits
+      "gemini-2.5-pro"
     ];
     let lastError = null;
 
@@ -185,8 +184,8 @@ class OpenAIService {
             console.warn(`   ⚠️ unexpected Error on Key #${this.currentKeyIndex} (${modelName}): ${error.message}`);
           }
 
-          // Increased delay to cool down the API and prevent cascading failures
-          await new Promise(resolve => setTimeout(resolve, 1500));
+          // Reduced delay for faster failover
+          await new Promise(resolve => setTimeout(resolve, 200));
         }
       }
     }
@@ -208,24 +207,23 @@ Your sole purpose is to analyze the PROVIDED market data and output a trading si
 🔑 Professional XAUUSD Gold Trading Prompt
 Trader Profile: 14+ Year Veteran successfully scaling accounts from $10 to $100,000. Focus on Risk Management and Adaptive Strategy Selection.
 
-| Strategy ID | Account/Phase Focus | Entry Logic | Risk Confluence (RSI/Levels) | Exit/Management |
+| Strategy ID | Account/Phase Focus | Entry Logic | Risk Confluence (Price Action/News) | Exit/Management |
 |---|---|---|---|---|
-| **DLS (10-1k)** | Compounding Growth ($10 - $1,000 accounts). High RRR, Low Lot Size. | Pinpoint entry on M5/M15/H1 at the extreme edge of fresh Supply or Demand Zones (SDZs). Must wait for a strong reversal candle/wick rejection at the boundary. | RSI extreme confirmation: Buy when RSI is <40 and turning up sharply at Demand. Sell when RSI is >60 and turning down sharply at Supply. SL 5-10 pips outside the zone. | Target the next opposing SDZ or swing high/low. Lock in profits at 1:1 RRR (Breakeven) and aim for minimum 1:5 RRR. |
-| **MR/CT (1k-10k)** | Consistent Stability ($1,000 - $10,000 accounts). High Win Rate in Ranging Markets. | Fading the extremes of the current range (H4/Daily). Sell at Resistance, Buy at Support. Use a Bollinger Band (BB) touch or price near a 100-SMA/EMA for added confluence. | RSI exhaustion: Buy when RSI is near 30 (Oversold). Sell when RSI is near 70 (Overbought). Avoid trading when RSI is strictly between 45 and 55. | Target the opposing boundary of the range. Use small-to-medium lot size. SL placed outside the range/channel wick. |
-| **MOMENTUM (10k-50k)** | Acceleration/Scaling ($10,000 - $50,000 accounts). Capitalizing on News/Structural Breaks. | Entry on the RETEST of a decisively broken Major Structural Level. Avoid chasing the initial break. Wait for price to break, consolidate, then pull back to the former level (now flipped support/resistance). | RSI Trend Confirmation: For a Buy, RSI must hold above 60 after the retest. For a Sell, RSI must hold below 40 after the retest. | Trail Stop Loss aggressively once the move extends beyond 1:2 RRR. Target the next major psychological level or Fibonacci extension. |
-| **MACRO (50k+)** | Wealth Preservation ($50,000 - $100,000+ accounts). Low leverage, Long-term holds. | Initial position taken based on strong macro-economic conviction (e.g., long due to inflation outlook). Scale-in (add to the position) only during deep corrections that test the Weekly 20-EMA or Weekly 50-SMA for optimal average price. | Weekly RSI confirmation: Enter the initial long only after the Weekly RSI has completed a cycle and bounced from the 30–40 zone. Do not open new longs when Weekly RSI is >70. | Hold for weeks/months. Manage risk by setting a wide SL below a major yearly structure. Use minimal lot sizing (low leverage) to withstand volatility. |
+| **DLS (10-1k)** | Compounding Growth ($10 - $1,000 accounts). High RRR, Low Lot Size. | Pinpoint entry on M5/M15/H1 at the extreme edge of fresh Supply or Demand Zones (SDZs). Must wait for a strong reversal candle/wick rejection at the boundary. | Structure Confirmation: Buy at Demand (Support) if News is Neutral/Bullish. Sell at Supply (Resistance) if News is Neutral/Bearish. Avoid trading against High-Impact News. | Target the next opposing SDZ or swing high/low. Lock in profits at 1:1 RRR (Breakeven) and aim for minimum 1:5 RRR. |
+| **MR/CT (1k-10k)** | Consistent Stability ($1,000 - $10,000 accounts). High Win Rate in Ranging Markets. | Fading the extremes of the current range (H4/Daily). Sell at Resistance, Buy at Support. Use a Bollinger Band (BB) touch or price near a 100-SMA/EMA for added confluence. | Range Validation: Buy near Daily Low if Trend is up. Sell near Daily High if Trend is down. Ensure price has rejected the level with a wick. | Target the opposing boundary of the range. Use small-to-medium lot size. SL placed outside the range/channel wick. |
+| **MOMENTUM (10k-50k)** | Acceleration/Scaling ($10,000 - $50,000 accounts). Capitalizing on News/Structural Breaks. | Entry on the RETEST of a decisively broken Major Structural Level. Avoid chasing the initial break. Wait for price to break, consolidate, then pull back to the former level (now flipped support/resistance). | Trend/News Confirmation: Buy if Price Change is Positive > 0.1% AND News is Bullish. Sell if Price Change is Negative < -0.1% AND News is Bearish. | Trail Stop Loss aggressively once the move extends beyond 1:2 RRR. Target the next major psychological level or Fibonacci extension. |
+| **MACRO (50k+)** | Wealth Preservation ($50,000 - $100,000+ accounts). Low leverage, Long-term holds. | Initial position taken based on strong macro-economic conviction (e.g., long due to inflation outlook). Scale-in (add to the position) only during deep corrections that test the Weekly 20-EMA or Weekly 50-SMA for optimal average price. | Fundamental Confirmation: Enter Long only if "USD Strength" is Weak/Stable and Gold Impact is Bullish. Enter Short only if USD is Strong. | Hold for weeks/months. Manage risk by setting a wide SL below a major yearly structure. Use minimal lot sizing (low leverage) to withstand volatility. |
 ---
 🔒 System Rules
 1. **STRICT DATA ADHERENCE**: You must rely **EXCLUSIVELY** on the market data provided in the prompt (Price, News, Volatility). **DO NOT** attempt to search the web or hallucinate external data. If data is missing, state it in the analysis but do not invent it.
 2. Based on the user's provided balance category, you MUST SELECT the appropriate Strategy ID and apply its entry/exit logic to generate a signal.
-3. Your core mandate is to **FIND THE BEST TRADING OPPORTUNITY** that fits the strategy.
-4. **INTELLIGENT PATIENCE**: If the market conditions (Spread, Volatility, or Structure) do NOT meet the Strategy ID criteria, **ISSUE A HOLD SIGNAL**. Capital preservation is the priority. Do NOT force a trade in unclear markets.
+3. Your core mandate is to **ALWAYS FIND THE BEST TRADING OPPORTUNITY** that fits one of the four strategies. **You MUST generate a definitive BUY or SELL signal.**
+4. **NEVER ISSUE A HOLD SIGNAL.** The only exceptions are: A) Price data is missing (technical error). B) You explicitly state a major high-impact news event is actively releasing (last 5 minutes) AND you use the hold to set up a better entry on the price retest (e.g., HOLD for 15 minutes, then BUY).
 5. You must provide clear technical and fundamental reasoning.
 
 🎯 Decision Logic:
-- If a Strategy ID setup is ideal, output a STRONG_BUY or STRONG_SELL.
-- If the setup is valid but carries higher risk, output a BUY or SELL with reduced confidence.
-- If NO valid setup exists according to the specific Strategy ID rules, output **HOLD**.
+- If a Strategy ID setup is not ideal, you must adjust the ENTRY/SL/TP within reasonable limits to create a trade setup, preferring the highest probability direction.
+- **ALWAYS** generate a definitive BUY or SELL signal based on the best fit strategy and entry point you can find from your analysis.
 
 💬 Message Format
 You MUST structure your output with clear labels for the parsing function (e.g., SIGNAL:, CONFIDENCE:, ENTRY:).
@@ -398,7 +396,10 @@ Act exactly according to this prompt. Your response must be professional and pro
     const tp2Match = analysis.match(/(?:Take Profit 2|TP2):\s*\$?([\d.]+)/i);
 
     let signal = signalMatch ? signalMatch[1].toUpperCase() : 'HOLD'; // SAFETY: Default to HOLD if parse fails
-    let confidence = confidenceMatch ? parseInt(confidenceMatch[1]) : 0;
+
+    // SAFETY: If AI gives a signal but forgets confidence, default to 50 (Neutral) instead of 0
+    let parsedConfidence = confidenceMatch ? parseInt(confidenceMatch[1]) : null;
+    let confidence = parsedConfidence !== null ? parsedConfidence : (signal === 'HOLD' ? 0 : 50);
     let entry = entryMatch ? parseFloat(entryMatch[1]) : fallbackPrice;
     let stopLoss = slMatch ? parseFloat(slMatch[1]) : 0;
     let takeProfit1 = tp1Match ? parseFloat(tp1Match[1]) : 0;
@@ -410,8 +411,12 @@ Act exactly according to this prompt. Your response must be professional and pro
     const marketContext = this.extractSection(analysis, "MARKET CONTEXT & FUNDAMENTALS:", "RISK MANAGEMENT:");
     const professionalRecommendation = this.extractSection(analysis, "PROFESSIONAL RECOMMENDATION:", "---") || "Trade with caution.";
 
-    // REMOVED: The logic that forced HOLD -> BUY/SELL. 
-    // We now respect the AI's decision to HOLD if market conditions are poor.
+    // CRITICAL FIX: Enforce the BUY/SELL mandate
+    if (signal === 'HOLD') {
+      // Force to a directional signal if AI violates the mandate
+      signal = confidence >= 50 ? 'BUY' : 'SELL';
+      confidence = Math.min(confidence, 60); // Cap confidence for mandated signal
+    }
 
     // Safety checks for entry and levels generation
     if (!entry) {
