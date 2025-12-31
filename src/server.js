@@ -476,7 +476,10 @@ async function handleGoldPrice(chatId) {
 
     message += `⏰ ${new Date(goldData.timestamp).toLocaleString()}`;
 
-    await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'HTML',
+      reply_markup: mainKeyboard.reply_markup
+    });
   } catch (error) {
     console.error('Gold price error:', error);
     await bot.sendMessage(chatId, `❌ Error fetching gold price: ${error.message}`);
@@ -509,7 +512,10 @@ async function handleMarketSentiment(chatId) {
 
     message += `⏰ ${new Date(sentiment.timestamp).toLocaleString()}`;
 
-    await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'HTML',
+      reply_markup: mainKeyboard.reply_markup
+    });
   } catch (error) {
     console.error('Market sentiment error:', error);
     await bot.sendMessage(chatId, `❌ Error fetching market sentiment: ${error.message}\n\nData is currently unavailable.`);
@@ -550,7 +556,10 @@ async function handleMarketNews(chatId) {
 
     message += `⏰ ${new Date(newsData.timestamp).toLocaleString()}`;
 
-    await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'HTML',
+      reply_markup: mainKeyboard.reply_markup
+    });
   } catch (error) {
     console.error('Market news error:', error);
     await bot.sendMessage(chatId, `❌ Error fetching news: ${error.message}\n\nData is currently unavailable.`);
@@ -576,6 +585,11 @@ async function generateAndSendSignal(chatId, timeframe, userContext = null, bala
       chat_id: chatId,
       message_id: processingMsg.message_id,
       parse_mode: 'HTML'
+    });
+
+    // Ensure menu returns after signal
+    await bot.sendMessage(chatId, "🎯 Signal analysis complete. What's next?", {
+      reply_markup: mainKeyboard.reply_markup
     });
 
   } catch (error) {
@@ -647,6 +661,10 @@ async function generateMultipleSignals(chatId, userContext = null) {
       parse_mode: 'HTML'
     });
 
+    await bot.sendMessage(chatId, "📊 Multi-timeframe analysis complete.", {
+      reply_markup: mainKeyboard.reply_markup
+    });
+
   } catch (error) {
     console.error('Multi-signal error:', error);
     const errorMessage = `❌ Error generating multi-timeframe analysis: ${error.message}`;
@@ -715,6 +733,10 @@ async function handleQuickAnalysis(chatId) {
       chat_id: chatId,
       message_id: processingMsg.message_id,
       parse_mode: 'HTML'
+    });
+
+    await bot.sendMessage(chatId, "⚡ Quick scan finished.", {
+      reply_markup: mainKeyboard.reply_markup
     });
 
   } catch (error) {
