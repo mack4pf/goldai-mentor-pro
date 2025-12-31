@@ -69,7 +69,12 @@ bot.on('error', (error) => {
 });
 
 bot.on('polling_error', (error) => {
-  console.error('❌ Polling error:', error);
+  if (error.message.includes('409 Conflict')) {
+    console.error('❌ TELEGRAM CONFLICT ERROR: Multiple instances of this bot are running!');
+    console.error('👉 TIP: Close all other terminal windows or run "taskkill /F /IM node.exe" in PowerShell to stop existing instances.');
+  } else {
+    console.error('❌ Polling error:', error.message);
+  }
 });
 
 // ==================== NEW RATE LIMITING LOGIC (COMMENTED OUT) ====================

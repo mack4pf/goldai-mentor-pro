@@ -118,24 +118,47 @@ class CronService {
             const users = await databaseService.getAllUsers();
             const activeUsers = users.filter(u => u.status === 'active' && u.telegramId);
 
-            const message = `🔥 <b>NEW ${signal.signal} SETUP</b>\n\n` +
-                `⏰ Timeframe: ${config.timeframe.toUpperCase()}\n` +
-                `💰 Tier: ${config.tier}\n` +
-                `📊 Confidence: ${signal.confidence}%\n` +
-                `📍 Entry: $${signal.entry}\n` +
-                `🛑 SL: $${signal.stopLoss}\n` +
-                `🎯 TP1: $${signal.takeProfit1}\n\n` +
-                `✅ This signal has been sent to your trading system!`;
+            const signalEmoji = signal.signal.includes('BUY') ? '🔵 BUY' : '🟠 SELL';
 
+            const message = `🚀 <b>NEW PRO SETUP: ${signalEmoji} Gold</b>\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `⏰ <b>TIMEFRAME:</b> ${config.timeframe.toUpperCase()}\n` +
+                `📊 <b>CONFIDENCE:</b> ${signal.confidence}%\n` +
+                `💰 <b>RISK TIER:</b> ${config.tier}\n\n` +
+
+                `🎯 <b>EXECUTION LEVELS:</b>\n` +
+                `📍 <b>Entry:</b> $${signal.entry}\n` +
+                `🛑 <b>Stop Loss:</b> $${signal.stopLoss}\n` +
+                `🏁 <b>TP1:</b> $${signal.takeProfit1}\n\n` +
+
+                `👨‍🏫 <b>MENTOR'S ANALYSIS (Why this trade?):</b>\n` +
+                `${signal.technicalAnalysis}\n\n` +
+
+                `💡 <b>HOW TO EXECUTE (Beginner Guide):</b>\n` +
+                `1. Open your trading app (MT4/MetaTrader/Exness).\n` +
+                `2. Search for <b>XAUUSD</b> or <b>GOLD</b>.\n` +
+                `3. Set Lot Size: <b>${signal.positionSizing?.lots || '0.01'}</b> (Safe risk).\n` +
+                `4. Enter the Stop Loss and TP levels exactly as shown above.\n` +
+                `5. Only enter if price is within $0.50 of the Entry point.\n\n` +
+
+                `⚠️ <b>WATCH OUT FOR:</b>\n` +
+                `• ${signal.marketContext?.split('.')[0] || 'Market volatility during news'}.\n` +
+                `• Keep your risk small. If price hits Stop Loss, do not revenge trade.\n\n` +
+                `✅ <i>Signal verified by GoldAI Mentor Core.</i>`;
+
+            let successCount = 0;
             for (const user of activeUsers) {
                 try {
                     await this.bot.sendMessage(user.telegramId, message, { parse_mode: 'HTML' });
+                    successCount++;
                 } catch (e) {
-                    console.error(`Failed to send to ${user.telegramId}:`, e.message);
+                    if (e.message.indexOf('blocked') === -1) {
+                        console.error(`Failed to send to ${user.telegramId}:`, e.message);
+                    }
                 }
             }
 
-            console.log(`   📱 Broadcast sent to ${activeUsers.length} users`);
+            console.log(`   📱 Professional Broadcast sent to ${successCount} active users`);
         } catch (error) {
             console.error('Broadcast error:', error.message);
         }
