@@ -217,13 +217,14 @@ Trader Profile: 14+ Year Veteran successfully scaling accounts from $10 to $100,
 🔒 System Rules
 1. **STRICT DATA ADHERENCE**: You must rely **EXCLUSIVELY** on the market data provided in the prompt (Price, News, Volatility). **DO NOT** attempt to search the web or hallucinate external data. If data is missing, state it in the analysis but do not invent it.
 2. Based on the user's provided balance category, you MUST SELECT the appropriate Strategy ID and apply its entry/exit logic to generate a signal.
-3. Your core mandate is to **ALWAYS FIND THE BEST TRADING OPPORTUNITY** that fits one of the four strategies. **You MUST generate a definitive BUY or SELL signal.**
-4. **NEVER ISSUE A HOLD SIGNAL.** The only exceptions are: A) Price data is missing (technical error). B) You explicitly state a major high-impact news event is actively releasing (last 5 minutes) AND you use the hold to set up a better entry on the price retest (e.g., HOLD for 15 minutes, then BUY).
+3. Your core mandate is to **FIND THE BEST TRADING OPPORTUNITY** that fits the strategy.
+4. **INTELLIGENT PATIENCE**: If the market conditions (Spread, Volatility, or Structure) do NOT meet the Strategy ID criteria, **ISSUE A HOLD SIGNAL**. Capital preservation is the priority. Do NOT force a trade in unclear markets.
 5. You must provide clear technical and fundamental reasoning.
 
 🎯 Decision Logic:
-- If a Strategy ID setup is not ideal, you must adjust the ENTRY/SL/TP within reasonable limits to create a trade setup, preferring the highest probability direction.
-- **ALWAYS** generate a definitive BUY or SELL signal based on the best fit strategy and entry point you can find from your analysis.
+- If a Strategy ID setup is ideal, output a STRONG_BUY or STRONG_SELL.
+- If the setup is valid but carries higher risk, output a BUY or SELL with reduced confidence.
+- If NO valid setup exists according to the specific Strategy ID rules, output **HOLD**.
 
 💬 Message Format
 You MUST structure your output with clear labels for the parsing function (e.g., SIGNAL:, CONFIDENCE:, ENTRY:).
@@ -395,8 +396,8 @@ Act exactly according to this prompt. Your response must be professional and pro
     const tp1Match = analysis.match(/(?:Take Profit 1|TP1):\s*\$?([\d.]+)/i);
     const tp2Match = analysis.match(/(?:Take Profit 2|TP2):\s*\$?([\d.]+)/i);
 
-    let signal = signalMatch ? signalMatch[1].toUpperCase() : 'BUY'; // Mandate BUY if parse fails
-    let confidence = confidenceMatch ? parseInt(confidenceMatch[1]) : 50;
+    let signal = signalMatch ? signalMatch[1].toUpperCase() : 'HOLD'; // SAFETY: Default to HOLD if parse fails
+    let confidence = confidenceMatch ? parseInt(confidenceMatch[1]) : 0;
     let entry = entryMatch ? parseFloat(entryMatch[1]) : fallbackPrice;
     let stopLoss = slMatch ? parseFloat(slMatch[1]) : 0;
     let takeProfit1 = tp1Match ? parseFloat(tp1Match[1]) : 0;
@@ -408,12 +409,8 @@ Act exactly according to this prompt. Your response must be professional and pro
     const marketContext = this.extractSection(analysis, "MARKET CONTEXT & FUNDAMENTALS:", "RISK MANAGEMENT:");
     const professionalRecommendation = this.extractSection(analysis, "PROFESSIONAL RECOMMENDATION:", "---") || "Trade with caution.";
 
-    // CRITICAL FIX: Enforce the BUY/SELL mandate
-    if (signal === 'HOLD') {
-      // Force to a directional signal if AI violates the mandate
-      signal = confidence >= 50 ? 'BUY' : 'SELL';
-      confidence = Math.min(confidence, 60); // Cap confidence for mandated signal
-    }
+    // REMOVED: The logic that forced HOLD -> BUY/SELL. 
+    // We now respect the AI's decision to HOLD if market conditions are poor.
 
     // Safety checks for entry and levels generation
     if (!entry) {
@@ -573,16 +570,49 @@ Act exactly according to this prompt. Your response must be professional and pro
     return { stopLoss: this.roundToNearestQuarter(stopLoss), takeProfit1: this.roundToNearestQuarter(takeProfit1), takeProfit2: this.roundToNearestQuarter(takeProfit2) };
   }
   calculatePositionSizing(userContext, entry, stopLoss) {
-    if (!userContext || !userContext.balance) { return { lots: 0.1, riskAmount: 'N/A', riskPercent: '2% (Standard)', note: 'User balance not provided. Defaulting to 0.1 lots.' }; }
-    const balance = userContext.balance;
-    const riskMap = { 'low': 0.01, 'standard': 0.02, 'high': 0.03 };
+    if (!userContext || !userContext.balance) { return { lots: 0.01, riskAmount: 'N/A', riskPercent: '2% (Standard)', note: 'User balance not provided. Defaulting to 0.01 lots (Min).' }; }
+
+    // SAFETY: Enforce safer defaults
+    const balance = parseFloat(userContext.balance);
+    const riskMap = { 'low': 0.01, 'standard': 0.02, 'high': 0.03 }; // Max 3% risk
     const riskPerTradePercent = riskMap[userContext.riskTier] || 0.02;
+
+    // 1. Calculate max dollar risk allowed
     const riskAmount = balance * riskPerTradePercent;
+
+    // 2. Calculate distance to stop loss per unit (price change)
     const riskPerPoint = Math.abs(entry - stopLoss);
-    if (riskPerPoint === 0) { return { lots: 0.01, riskAmount: '$0.00', riskPercent: '0%', note: 'Invalid SL, defaulting to min lots.' }; }
-    const lots = riskAmount / riskPerPoint;
-    const roundedLots = Math.max(0.01, Math.min(10, parseFloat(lots.toFixed(2))));
-    return { lots: roundedLots, riskAmount: `$${riskAmount.toFixed(2)}`, riskPercent: `${riskPerTradePercent * 100}%`, maxPosition: `$${(roundedLots * entry).toFixed(2)} (Notional)`, calculation: `Based on $${balance} account balance with ${riskPerTradePercent * 100}% risk rule` };
+
+    if (riskPerPoint === 0) {
+      // Prevent division by zero
+      return { lots: 0.01, riskAmount: '$0.00', riskPercent: '0%', note: 'Invalid SL (0 distance), defaulting to min lots.' };
+    }
+
+    // 3. APPLY CONTRACT SIZE (CRITICAL FIX)
+    // Standard XAUUSD Lot = 100 oz. 
+    // Profit/Loss = (Price_Diff) * Lots * 100
+    // Therefore: Lots = Risk_Amount / (Price_Diff * 100)
+    const contractSize = 100;
+
+    let rawLots = riskAmount / (riskPerPoint * contractSize);
+
+    // 4. Rounding and Safety Caps
+    // Round down to 2 decimals to be safe (never round up risk)
+    let lots = Math.floor(rawLots * 100) / 100;
+
+    // Hard cap to prevent massive accidental positions (e.g. 50 lots on small account)
+    // Dynamic cap: Max leverage approx 1:20 effectively for this trade
+    const maxLeverageLots = (balance * 20) / (entry * contractSize);
+    lots = Math.min(lots, maxLeverageLots, 50.0); // Absolute max 50 lots
+    lots = Math.max(0.01, lots); // Absolute min 0.01
+
+    return {
+      lots: lots,
+      riskAmount: `$${(lots * riskPerPoint * contractSize).toFixed(2)}`,
+      riskPercent: `${((lots * riskPerPoint * contractSize / balance) * 100).toFixed(2)}%`,
+      maxPosition: `$${(lots * entry * contractSize).toFixed(2)} (Notional)`,
+      calculation: `Risk $${riskAmount.toFixed(2)} (${(riskPerTradePercent * 100).toFixed(1)}%) / (SL Dist ${riskPerPoint.toFixed(2)} * 100 oz)`
+    };
   }
   roundToNearestQuarter(price) { return parseFloat((price || 0).toFixed(2)); }
   extractSection(text, start, end) {

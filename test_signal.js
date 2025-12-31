@@ -11,6 +11,13 @@ async function testSignal() {
         console.log("Signal:", signal.signal);
         console.log("Confidence:", signal.confidence + "%");
         console.log("Entry:", signal.entry);
+        console.log("Stop Loss:", signal.stopLoss);
+        console.log("------------------------------------------");
+        console.log("💰 RISK MANAGEMENT (CRITICAL FIX CHECK):");
+        console.log("Lots:", signal.positionSizing?.lots);
+        console.log("Risk Amount:", signal.positionSizing?.riskAmount);
+        console.log("Calculation:", signal.positionSizing?.calculation);
+        console.log("------------------------------------------");
         console.log("Context:", signal.marketContext);
         console.log("------------------------------------------");
     } catch (error) {
