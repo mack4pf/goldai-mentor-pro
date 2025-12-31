@@ -20,6 +20,7 @@ async function testSignalGeneration() {
         console.log("\n✅ Test Result:");
         console.log("------------------------------------------");
         console.log("Signal:", signal.signal);
+        console.log("Grade:", signal.strategyGrade);
         console.log("Confidence:", signal.confidence + "%");
         console.log("Entry:", signal.entry);
         console.log("Stop Loss:", signal.stopLoss);

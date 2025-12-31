@@ -209,24 +209,27 @@ function formatSignalMessage(signal) {
     signal.confidence >= 60 ? '🟡' : '🔴';
 
   let message = `${signalEmoji} <b>TRADING SIGNAL: ${signal.signal}</b>\n`;
+  message += `━━━━━━━━━━━━━━━━━━━━━━\n`;
   message += `⏰ <b>Timeframe:</b> ${signal.timeframe.toUpperCase()}\n`;
-  message += `${confidenceColor} <b>Confidence:</b> ${signal.confidence}%\n\n`;
+  message += `${confidenceColor} <b>Confidence:</b> ${signal.confidence}%\n`;
+  if (signal.strategyGrade) {
+    message += `🏆 <b>Setup Grade:</b> ${signal.strategyGrade}\n`;
+  }
+  message += `━━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
   if (signal.signal !== 'HOLD') {
     message += `🎯 <b>TRADE SETUP</b>\n`;
-    // CRITICAL FIX: Check if entry is null before displaying price
     message += `📍 <b>Entry:</b> ${signal.entry ? `$${signal.entry}` : 'N/A'}\n`;
     message += `🛑 <b>Stop Loss:</b> ${signal.stopLoss ? `$${signal.stopLoss}` : 'N/A'}\n`;
-    message += `🎯 <b>Take Profit 1:</b> ${signal.takeProfit1 ? `$${signal.takeProfit1}` : 'N/A'}\n`;
-    message += `🎯 <b>Take Profit 2:</b> ${signal.takeProfit2 ? `$${signal.takeProfit2}` : 'N/A'}\n\n`;
+    message += `🏁 <b>Target (TP):</b> ${signal.takeProfit1 ? `$${signal.takeProfit1}` : 'N/A'}\n\n`;
 
     if (signal.levelExplanation) {
-      message += `💡 <b>LEVEL EXPLANATION</b>\n`;
+      message += `💡 <b>LEVEL ANALYSIS</b>\n`;
       message += `${signal.levelExplanation}\n\n`;
     }
   }
 
-  message += `📊 <b>TECHNICAL ANALYSIS</b>\n`;
+  message += `📈 <b>TECHNICAL RATIONALE</b>\n`;
   message += `${signal.technicalAnalysis}\n\n`;
 
   if (signal.marketContext) {
@@ -235,14 +238,14 @@ function formatSignalMessage(signal) {
   }
 
   message += `⚖️ <b>RISK MANAGEMENT</b>\n`;
-  message += `${signal.riskManagement}\n\n`; // This now contains our position size
+  message += `${signal.riskManagement}\n\n`;
 
   if (signal.professionalRecommendation) {
-    message += `💎 <b>PROFESSIONAL RECOMMENDATION</b>\n`;
+    message += `👨‍🏫 <b>MENTOR'S EXECUTION TIP</b>\n`;
     message += `${signal.professionalRecommendation}\n\n`;
   }
 
-  message += `⚠️ <i>Trade responsibly. This is analysis and My current Setup </i>\n`;
+  message += `⚠️ <i>Trade responsibly. Verified by GoldAI Mentor Pro Core.</i>\n`;
   message += `⏰ ${new Date(signal.timestamp).toLocaleString()}`;
 
   return message;

@@ -122,29 +122,29 @@ class CronService {
 
             const message = `🚀 <b>NEW PRO SETUP: ${signalEmoji} Gold</b>\n` +
                 `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `🏆 <b>SETUP GRADE:</b> ${signal.strategyGrade || 'A'}\n` +
                 `⏰ <b>TIMEFRAME:</b> ${config.timeframe.toUpperCase()}\n` +
                 `📊 <b>CONFIDENCE:</b> ${signal.confidence}%\n` +
-                `💰 <b>LOT SIZE:</b> <b>${signal.positionSizing?.lots || '0.01'}</b> (Safe Risk Control)\n\n` +
+                `💰 <b>LOT SIZE:</b> <b>${signal.positionSizing?.lots || '0.01'}</b>\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━\n\n` +
 
                 `🎯 <b>TRADE SETUP:</b>\n` +
                 `📍 <b>Entry:</b> $${signal.entry}\n` +
                 `🛑 <b>Stop Loss:</b> $${signal.stopLoss}\n` +
-                `🏁 <b>TP1:</b> $${signal.takeProfit1}\n\n` +
+                `🏁 <b>Target (TP):</b> $${signal.takeProfit1}\n\n` +
 
-                `👨‍🏫 <b>MENTOR ADVICE (Candle Patterns):</b>\n` +
+                `👨‍🏫 <b>MENTOR ADVICE (Action Pattern):</b>\n` +
                 `${signal.professionalRecommendation}\n\n` +
 
-                `📊 <b>WHY THIS TRADE? (Educational):</b>\n` +
+                `📈 <b>WHY THIS TRADE? (Storyline):</b>\n` +
                 `${signal.technicalAnalysis}\n\n` +
 
                 `💡 <b>EXECUTION TIPS:</b>\n` +
-                `• Watch for <b>Pin Bars or Engulfing</b> candles at $${signal.entry} for extra confirmation.\n` +
-                `• Never enter a trade if price has already moved 20+ pips away from Entry.\n` +
-                `• Set your lot size exactly to <b>${signal.positionSizing?.lots || '0.01'}</b> to protect your capital.\n\n` +
+                `• Use <b>Line Chart</b> to find the Fresh Entry Point.\n` +
+                `• Wait for a <b>rejection wick</b> on the candle close before entering.\n\n` +
 
-                `⚠️ <b>WATCH OUT FOR:</b>\n` +
-                `• ${signal.marketContext?.split('.')[0] || 'Market volatility and spread'}.\n` +
-                `• Stay patient. If SL is hit, the pattern changed; stay professional and wait.\n\n` +
+                `⚠️ <b>RISK NOTE:</b>\n` +
+                `• Maintain strict ${signal.positionSizing?.lots || '0.01'} lots. Protect your equity.\n\n` +
                 `✅ <i>Signal verified by GoldAI Mentor Pro Core.</i>`;
 
             let successCount = 0;

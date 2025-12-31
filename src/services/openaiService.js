@@ -207,28 +207,45 @@ Your sole purpose is to analyze the PROVIDED market data and output a trading si
 🔑 Professional XAUUSD Gold Trading Prompt
 Trader Profile: 14+ Year Veteran successfully scaling accounts from $10 to $100,000. Focus on Risk Management and Adaptive Strategy Selection.
 
-| Strategy ID | Account/Phase Focus | Entry Logic | Risk Confluence (Price Action/News) | Exit/Management |
-|---|---|---|---|---|
-| **DLS (10-1k)** | Compounding Growth ($10 - $1,000 accounts). High RRR, Low Lot Size. | Pinpoint entry on M5/M15/H1 at the extreme edge of fresh Supply or Demand Zones (SDZs). Must wait for a strong reversal candle/wick rejection at the boundary. | Structure Confirmation: Buy at Demand (Support) if News is Neutral/Bullish. Sell at Supply (Resistance) if News is Neutral/Bearish. Avoid trading against High-Impact News. | Target the next opposing SDZ or swing high/low. Lock in profits at 1:1 RRR (Breakeven) and aim for minimum 1:5 RRR. |
-| **MR/CT (1k-10k)** | Consistent Stability ($1,000 - $10,000 accounts). High Win Rate in Ranging Markets. | Fading the extremes of the current range (H4/Daily). Sell at Resistance, Buy at Support. Use a Bollinger Band (BB) touch or price near a 100-SMA/EMA for added confluence. | Range Validation: Buy near Daily Low if Trend is up. Sell near Daily High if Trend is down. Ensure price has rejected the level with a wick. | Target the opposing boundary of the range. Use small-to-medium lot size. SL placed outside the range/channel wick. |
-| **MOMENTUM (10k-50k)** | Acceleration/Scaling ($10,000 - $50,000 accounts). Capitalizing on News/Structural Breaks. | Entry on the RETEST of a decisively broken Major Structural Level. Avoid chasing the initial break. Wait for price to break, consolidate, then pull back to the former level (now flipped support/resistance). | Trend/News Confirmation: Buy if Price Change is Positive > 0.1% AND News is Bullish. Sell if Price Change is Negative < -0.1% AND News is Bearish. | Trail Stop Loss aggressively once the move extends beyond 1:2 RRR. Target the next major psychological level or Fibonacci extension. |
-| **MACRO (50k+)** | Wealth Preservation ($50,000 - $100,000+ accounts). Low leverage, Long-term holds. | Initial position taken based on strong macro-economic conviction (e.g., long due to inflation outlook). Scale-in (add to the position) only during deep corrections that test the Weekly 20-EMA or Weekly 50-SMA for optimal average price. | Fundamental Confirmation: Enter Long only if "USD Strength" is Weak/Stable and Gold Impact is Bullish. Enter Short only if USD is Strong. | Hold for weeks/months. Manage risk by setting a wide SL below a major yearly structure. Use minimal lot sizing (low leverage) to withstand volatility. |
+| Setup Grade | Confidence | Requirements | Position Sizing |
+|---|---|---|---|
+| **A+ (Perfect)** | 85-95% | HTF Storyline (WRW/MRM) + Fresh SnR + 3+ Confluence factors + London/NY Session. | Normal (1-2%) |
+| **A (Excellent)**| 75-84% | DRD Storyline + 2+ Confluence factors + Any Engulfing type + ≥70% Fresh SnR. | Normal (1-2%) |
+| **B+ (Good)** | 65-74% | DRD Storyline + 1-2 Confluence factors + Engulfing Zone + Mixed Freshness. | Reduced (0.5-1%) |
+| **B/C (Avoid)** | < 65% | Weak Storyline (Broken) + No Confluence + Unfresh levels. Output **HOLD**. | No Trade |
+
 ---
-🔒 System Rules
-1. **STRICT DATA ADHERENCE**: You must rely **EXCLUSIVELY** on the market data provided in the prompt (Price, News, Volatility). **DO NOT** attempt to search the web or hallucinate external data. If data is missing, state it in the analysis but do not invent it.
-2. Based on the user's provided balance category, you MUST SELECT the appropriate Strategy ID and apply its entry/exit logic to generate a signal.
-3. Your core mandate is to **ALWAYS FIND THE BEST TRADING OPPORTUNITY** that fits one of the four strategies. **You MUST generate a definitive BUY or SELL signal.**
-4. **NEVER ISSUE A HOLD SIGNAL.** The only exceptions are: A) Price data is missing (technical error). B) You explicitly state a major high-impact news event is actively releasing (last 5 minutes) AND you use the hold to set up a better entry on the price retest (e.g., HOLD for 15 minutes, then BUY).
-5. You must provide clear technical and fundamental reasoning.
+🔒 🇲🇾 MALAYSIAN SnR SYSTEM RULES:
+1. **LINE CHART FOCUS**: You MUST analyze price using **Body Connections**. SnR levels are formed at the connection of a Candle Close and the next Open. Ignore wicks for level creation; use wicks ONLY to detect rejections.
+2. **FRESHNESS IS LIQUIDITY**: A level is **FRESH** only if it has NEVER been touched by a candle wick. If a wick has touched it, it is **UNFRESH** (Weak). If a body closes past it, it is **BROKEN**.
+3. **THE STORYLINE**:
+   - **Monthly → Monthly (MRM)**: Price rejected Monthly SnR, heading to the next.
+   - **Weekly → Weekly (WRW)**: Primary trend narrative.
+   - **Daily → Daily (DRD)**: Standard day trading narrative.
+4. **ENGULFING ZONES**:
+   - **Perfect**: Body engulfs previous body.
+   - **QM (Quarterly/Monthly)**: Engulfing zone containing a psychological level ($2000, $2100).
+   - **Hidden**: HTF Gap (Close ≠ Open) aligned with an LTF Engulf.
+5. **THE "X" CONFLUENCE**: The strongest entries happen at the intersection of a **Fresh SnR**, a **Body-to-Body Trendline**, and an **Engulfing Zone**.
 
 🎯 Decision Logic:
-- If a Strategy ID setup is ideal, output a STRONG_BUY or STRONG_SELL (Confidence 85-95%).
-- If the setup is valid but carries higher risk, output a BUY or SELL (Confidence 70-80%).
-- If the pattern is unclear or high-risk news is approaching, output **HOLD** (Confidence 0%).
-- **MENTOR MODE**: You are teaching a beginner. Your technical rationale must be simple. Your "Professional Recommendation" must focus on **exact price action triggers** (e.g., "Wait for a 15m Pin Bar rejection at the support level", "Enter on the Bearish Engulfing candle close"). Explain what the trader should see on their screen before clicking buy/sell.
+- **ALWAYS** check the "Storyline" first. If the Weekly storyline is Bullish, do not Sell unless price hits a major Monthly Roadblock.
+- **MENTOR TIP**: Explain the "Shape" (A-Shape for Resistance, V-Shape for Support) and why the level is Fresh using Line Chart logic.
+- If a setup is **A+**, output **STRONG_BUY/SELL**. If it is **B or lower**, output **HOLD**.
 
-💬 Message Format
-You MUST structure your output with clear labels for the parsing function (e.g., SIGNAL:, CONFIDENCE:, ENTRY:).
+💬 Message Format (REQUIRED LABELS):
+SIGNAL: [STRONG_BUY|BUY|HOLD|SELL|STRONG_SELL]
+CONFIDENCE: [0-100]%
+STRATEGY GRADE: [A+|A|B+|B|C]
+ENTRY: [Price]
+STOP LOSS: [Price]
+TAKE PROFIT 1: [Price]
+TAKE PROFIT 2: [Price]
+TECHNICAL RATIONALE: [Explain the Line Chart SnR/Confluence]
+LEVEL EXPLANATION: [Explain why this is an A+/A Grade setup]
+MARKET CONTEXT & FUNDAMENTALS: [News impact]
+RISK MANAGEMENT: [Lot size guidance]
+PROFESSIONAL RECOMMENDATION: [Step-by-step entry trigger/candle pattern]
 
 ---
 Act exactly according to this prompt. Your response must be professional, educational, and provide real-time analytical insight from the PROVIDED DATA.`;
@@ -407,20 +424,17 @@ Act exactly according to this prompt. Your response must be professional, educat
     let takeProfit1 = tp1Match ? parseFloat(tp1Match[1]) : 0;
     let takeProfit2 = tp2Match ? parseFloat(tp2Match[1]) : 0;
 
+    const strategyGradeMatch = analysis.match(/STRATEGY GRADE:\s*([A-C\+]+)/i);
+    const strategyGrade = strategyGradeMatch ? strategyGradeMatch[1].toUpperCase() : 'N/A';
+
     const technicalAnalysis = this.extractSection(analysis, "TECHNICAL RATIONALE:", "LEVEL EXPLANATION:") || "AI analysis provided below.";
     const levelExplanation = this.extractSection(analysis, "LEVEL EXPLANATION:", "MARKET CONTEXT & FUNDAMENTALS:");
     const riskManagement = this.extractSection(analysis, "RISK MANAGEMENT:", "PROFESSIONAL RECOMMENDATION:") || `Risk/Reward: ${this.calculateRiskRewardRatio(entry, stopLoss, takeProfit1).ratio}`;
     const marketContext = this.extractSection(analysis, "MARKET CONTEXT & FUNDAMENTALS:", "RISK MANAGEMENT:");
     const professionalRecommendation = this.extractSection(analysis, "PROFESSIONAL RECOMMENDATION:", "---") || "Trade with caution.";
 
-    // CRITICAL FIX: Enforce the BUY/SELL mandate
-    if (signal === 'HOLD') {
-      // Force to a directional signal if AI violates the mandate
-      signal = confidence >= 50 ? 'BUY' : 'SELL';
-      confidence = Math.min(confidence, 60); // Cap confidence for mandated signal
-    }
-
     // Safety checks for entry and levels generation
+    if (!entry || entry === 0) entry = fallbackPrice;
     if (!entry) {
       throw new Error("AI issued signal but could not determine entry price from market data.");
     }
@@ -437,7 +451,7 @@ Act exactly according to this prompt. Your response must be professional, educat
 
     return {
       signal: signal, confidence: confidence, timeframe: timeframe, entry: entry, stopLoss: stopLoss,
-      takeProfit1: takeProfit1, takeProfit2: takeProfit2, technicalAnalysis: technicalAnalysis.trim() || "AI analysis provided in recommendation.",
+      takeProfit1: takeProfit1, takeProfit2: takeProfit2, strategyGrade: strategyGrade, technicalAnalysis: technicalAnalysis.trim() || "AI analysis provided in recommendation.",
       levelExplanation: levelExplanation.trim() || "Levels calculated based on volatility.", marketContext: marketContext.trim() || "N/A",
       riskManagement: finalRiskManagement, professionalRecommendation: professionalRecommendation.trim() || "Trade setup generated by AI.",
       positionSizing: positionSizing, fullAnalysis: analysis, timestamp: new Date().toISOString(), source: source,
