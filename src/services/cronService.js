@@ -34,81 +34,63 @@ class CronService {
 
         this.isJobRunning = true;
         console.log('================================================================================');
-        console.log(`⏰ HOURLY SIGNAL GENERATION - ${new Date().toISOString()}`);
+        console.log(`⏰ HOURLY MASTER ANALYSIS - ${new Date().toISOString()}`);
         console.log('================================================================================');
 
-        const configs = [
-            { timeframe: '5m', balanceCategory: '10_50', tier: '$50' },
-            { timeframe: '5m', balanceCategory: '200_500', tier: '$200' },
-            { timeframe: '15m', balanceCategory: '10_50', tier: '$50' },
-            { timeframe: '15m', balanceCategory: '200_500', tier: '$200' }
-        ];
+        try {
+            console.log('   🔨 Compiling Multi-Timeframe Data (W1 -> M15)...');
 
-        const results = [];
+            // The AI will receive the current market context and analyzed MTF data
+            const masterSignal = await openaiService.generateMasterHourlySignal(['W1', 'D1', 'H4', 'H1', 'M15']);
 
-        for (const config of configs) {
-            try {
-                console.log(`   🔨 Generating ${config.timeframe} signal for ${config.tier} tier...`);
+            if (masterSignal && masterSignal.signal !== 'HOLD' && masterSignal.confidence >= 70) {
+                // FOUND A GOOD SETUP
+                const signalDoc = {
+                    ...masterSignal,
+                    source: 'CRON_MASTER_AUTO',
+                    createdAt: new Date().toISOString(),
+                    timestamp: new Date().toISOString()
+                };
 
-                const signal = await openaiService.generateTradingSignal(
-                    config.timeframe,
-                    { balance: config.tier === '$50' ? 50 : 200 },
-                    config.balanceCategory
-                );
+                await databaseService.createSignal(signalDoc);
+                console.log(`   ✅ MASTER SETUP FOUND (${masterSignal.strategyGrade} - ${masterSignal.confidence}%): Broadcasting...`);
 
-                const confidence = signal.confidence || 0;
-
-                // ✅ CONFIDENCE FILTERING
-                if (confidence >= 70) {
-                    // HIGH CONFIDENCE: Save to DB and broadcast
-                    const signalDoc = {
-                        ...signal,
-                        timeframe: config.timeframe,
-                        balanceCategory: config.balanceCategory,
-                        source: 'CRON_AUTO',
-                        createdAt: new Date().toISOString(),
-                        timestamp: new Date().toISOString()
-                    };
-
-                    await databaseService.createSignal(signalDoc);
-                    console.log(`   ✅ STRONG SIGNAL (${confidence}%): Saved to DB & Broadcasting`);
-
-                    results.push({
-                        config,
-                        signal: signal.signal,
-                        confidence,
-                        status: 'BROADCAST'
-                    });
-
-                    await this.broadcastToTelegram(signal, config);
-
-                } else {
-                    // LOW CONFIDENCE: Just notify users, don't save to DB
-                    console.log(`   ⚠️ WEAK SIGNAL (${confidence}%): Not saved. Notifying only.`);
-
-                    results.push({
-                        config,
-                        signal: signal.signal,
-                        confidence,
-                        status: 'WEAK_HOLD'
-                    });
-
-                    await this.notifyNoTrade(signal, config);
-                }
-
-                // Wait 3s between calls
-                await new Promise(r => setTimeout(r, 3000));
-
-            } catch (error) {
-                console.error(`   ❌ Failed ${config.timeframe}/${config.tier}:`, error.message);
-                results.push({ config, status: 'ERROR', error: error.message });
+                // Broadcast the winner
+                await this.broadcastToTelegram(masterSignal, { timeframe: masterSignal.timeframe, tier: 'Master Account' });
+            } else {
+                // NO CLEAR SETUP
+                console.log('   🤫 NO CLEAR SETUP FOUND across timeframes. Sending update...');
+                await this.broadcastNoSetupUpdate();
             }
+
+        } catch (error) {
+            console.error(`   ❌ Master Signal Generation Failed:`, error.message);
         }
 
         this.isJobRunning = false;
-        console.log('🏁 Hourly Generation Complete.');
-        console.log(`📊 Summary: ${results.filter(r => r.status === 'BROADCAST').length} tradeable, ${results.filter(r => r.status === 'WEAK_HOLD').length} weak`);
+        console.log('🏁 Master Hourly Generation Complete.');
         console.log('================================================================================');
+    }
+
+    async broadcastNoSetupUpdate() {
+        if (!this.bot) return;
+        try {
+            const users = await databaseService.getAllUsers();
+            const activeUsers = users.filter(u => u.status === 'active' && u.telegramId);
+
+            const message = `📊 <b>Master Market Update</b>\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `⏰ <b>Status:</b> No professional setup found for this hour.\n` +
+                `🔍 <b>Reason:</b> Market is currently unfresh or lacking "X" Confluence.\n\n` +
+                `💡 <i>"The best trade is sometimes no trade. Preserve your capital."</i>\n\n` +
+                `⏳ Monitoring next hour...`;
+
+            for (const user of activeUsers) {
+                try {
+                    await this.bot.sendMessage(user.telegramId, message, { parse_mode: 'HTML' });
+                } catch (e) { /* Silent fail */ }
+            }
+        } catch (e) { /* Silent fail */ }
     }
 
     async broadcastToTelegram(signal, config) {
@@ -166,28 +148,8 @@ class CronService {
     }
 
     async notifyNoTrade(signal, config) {
-        if (!this.bot) return;
-
-        try {
-            const users = await databaseService.getAllUsers();
-            const activeUsers = users.filter(u => u.status === 'active' && u.telegramId);
-
-            const message = `⚠️ <b>Market Update</b>\n\n` +
-                `⏰ ${config.timeframe.toUpperCase()} / ${config.tier}\n` +
-                `📊 Signal: ${signal.signal} (${signal.confidence}%)\n\n` +
-                `🔍 <i>Confidence below 70%. No trade recommended.</i>\n` +
-                `⏳ Waiting for stronger setup...`;
-
-            for (const user of activeUsers) {
-                try {
-                    await this.bot.sendMessage(user.telegramId, message, { parse_mode: 'HTML' });
-                } catch (e) {
-                    // Silent fail
-                }
-            }
-        } catch (error) {
-            // Silent fail
-        }
+        // PER USER REQUEST: Do NOT broadcast/spam if signal is weak.
+        console.log(`   🤫 Silencing weak broadcast for ${config.timeframe} ${config.tier} (Confidence: ${signal.confidence}%)`);
     }
 }
 

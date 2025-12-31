@@ -89,6 +89,70 @@ class OpenAIService {
     }
   }
 
+  async generateMasterHourlySignal(timeframes = ['W1', 'D1', 'H4', 'H1', 'M15']) {
+    try {
+      console.log(`🚀 HOURLY MASTER ANALYZER: Compiling MTF context for ${timeframes.join(', ')}...`);
+
+      const [goldPriceData, newsData] = await Promise.all([
+        this.getValidatedGoldPrice(),
+        newsService.getGoldNews()
+      ]);
+
+      const marketData = {
+        goldPrice: goldPriceData,
+        news: newsData,
+        mtfRange: {
+          current: goldPriceData.price,
+          high: goldPriceData.high,
+          low: goldPriceData.low,
+          change: goldPriceData.changePercent
+        },
+        timestamp: new Date().toISOString()
+      };
+
+      const prompt = `
+      XAUUSD MASTER ANALYSIS (MTF STORYLINE)
+      
+      🏦 REAL-TIME PRICE DATA:
+      - Current Price: $${marketData.goldPrice?.price}
+      - Today's Range: $${marketData.goldPrice?.low} - $${marketData.goldPrice?.high}
+      - Momentum: ${marketData.goldPrice?.changePercent}% (${marketData.goldPrice?.marketCondition?.description})
+      
+      📊 TIME-FRAME CONTEXT (Storyline Data):
+      - SHORT-TERM (H1/H4): Trend is ${marketData.goldPrice?.predictions?.shortTerm?.direction}. Expected near $${marketData.goldPrice?.predictions?.shortTerm?.predictedPrice}.
+      - MEDIUM-TERM (D1): Trend is ${marketData.goldPrice?.predictions?.mediumTerm?.direction}. Target near $${marketData.goldPrice?.predictions?.mediumTerm?.predictedPrice}.
+      - LONG-TERM (W1/M1): Trend is ${marketData.goldPrice?.predictions?.longTerm?.direction}. Structural bias is ${marketData.goldPrice?.predictions?.longTerm?.direction}.
+      
+      📰 FUNDAMENTAL CONTEXT:
+      - Sentiment: ${marketData.news?.overallSentiment}
+      - USD Strength: ${marketData.news?.usdAnalysis?.strength}
+      - Impact on Gold: ${marketData.news?.usdAnalysis?.impactOnGold?.impact}
+      
+      🎯 MALAYSIAN SnR TASK:
+      1. Define the **Storyline**: (e.g., Weekly rejected Resistance, heading to Daily Support).
+      2. Identify a **Fresh Level**: Find a price point where a Line Chart body connection remains untouched.
+      3. Verify **Confluence**: Match with a Trendline or Engulfing Zone.
+      4. Decision: If an **A+ (85%+)** or **A (75%+)** setup exists, output SIGNAL. Otherwise, output HOLD.
+      
+      You MUST respond with:
+      SIGNAL: [STRONG_BUY|BUY|HOLD|SELL|STRONG_SELL]
+      CONFIDENCE: [0-100]%
+      STRATEGY GRADE: [A+|A|B+|B|C]
+      ENTRY: [Price]
+      STOP LOSS: [Price]
+      TAKE PROFIT 1: [Price]
+      TECHNICAL RATIONALE: [Explain the HTF Storyline and why the level is Fresh]
+      PROFESSIONAL RECOMMENDATION: [Exact entry trigger, e.g. "Wait for H1 Bearish Engulfing at entry"]
+      `;
+
+      return await this.callGemini(prompt, marketData, 'Master', { balance: 2000, riskTier: 'Professional' });
+
+    } catch (error) {
+      console.error('❌ MASTER SIGNAL FAILURE:', error.message);
+      throw error;
+    }
+  }
+
   // ----------------------------------------------------------------------
   // 2. AI PROVIDER (GEMINI ONLY)
   // ----------------------------------------------------------------------

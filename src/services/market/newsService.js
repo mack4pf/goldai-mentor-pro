@@ -203,8 +203,8 @@ class NewsService {
       });
 
       if (allArticles.length === 0) {
-        console.warn('No articles returned from any free news source.');
-        throw new Error('All free news sources failed or returned no data');
+        console.warn('No articles returned from any free news source. Returning fallback.');
+        return this.getFallbackNews();
       }
 
       const uniqueArticles = this.removeDuplicates(allArticles).slice(0, 12);
