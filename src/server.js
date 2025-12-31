@@ -43,24 +43,36 @@ const signalRoutes = require('./routes/signalRoutes');
 app.use('/api/signal', signalRoutes);
 
 // Initialize Telegram Bot
+const isProduction = process.env.RENDER === 'true' || !!process.env.RENDER_EXTERNAL_URL;
+
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
-  polling: true,
+  polling: !isProduction, // Disable polling in production (use Webhooks instead)
   request: {
-    timeout: 60000, // Increase timeout to 60 seconds
-    agentOptions: {
-      keepAlive: true,
-      family: 4 // Use IPv4
-    }
+    timeout: 60000,
+    agentOptions: { keepAlive: true, family: 4 }
   }
 });
 
+// Configure Webhook for Production (Render)
+if (isProduction) {
+  const url = process.env.RENDER_EXTERNAL_URL || `https://${process.env.HEROKU_APP_NAME}.herokuapp.com`;
+  bot.setWebHook(`${url}/bot${process.env.TELEGRAM_BOT_TOKEN}`);
+  console.log(`📡 Webhook Mode Active: ${url}`);
+
+  // Webhook endpoint
+  app.post(`/bot${process.env.TELEGRAM_BOT_TOKEN}`, (req, res) => {
+    bot.processUpdate(req.body);
+    res.sendStatus(200);
+  });
+}
+
 // Start Cron Service for Background Signal Generation
 const cronService = require('./services/cronService');
-cronService.setBotInstance(bot); // Link bot for broadcasts
+cronService.setBotInstance(bot);
 cronService.start();
 
 // Bot startup message
-console.log('🟡 Starting GoldAI Mentor Pro Bot...');
+console.log(`🟡 Starting GoldAI Mentor Pro Bot (${isProduction ? 'WEBHOOK' : 'POLLING'} MODE)...`);
 console.log('✅ All services (Gemini/DeepSeek AI) initialized!');
 
 // Basic error handling
