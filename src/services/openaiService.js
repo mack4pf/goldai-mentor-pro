@@ -178,7 +178,7 @@ class OpenAIService {
 
     const gemini = new GoogleGenerativeAI(apiKey);
     const model = gemini.getGenerativeModel({
-      model: "gemini-2.0-flash-exp",
+      model: "gemini-1.5-flash",
       systemInstruction: this.getSystemPrompt()
     });
 
