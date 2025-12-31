@@ -29,6 +29,8 @@ async function testSignalGeneration() {
         console.log("Risk Amount:", signal.positionSizing?.riskAmount);
         console.log("Calculation:", signal.positionSizing?.calculation);
         console.log("------------------------------------------");
+        console.log("Mentor Tip:", signal.professionalRecommendation);
+        console.log("------------------------------------------");
         console.log("Context:", signal.marketContext);
         console.log("------------------------------------------");
 
