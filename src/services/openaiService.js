@@ -173,20 +173,57 @@ class OpenAIService {
   }
 
   async callGemini(prompt, marketData, timeframe, userContext) {
-    const apiKey = this.getNextGeminiKey();
-    if (!apiKey) throw new Error('No Gemini API keys configured');
+    const models = ["gemini-2.0-flash-exp", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"];
+    let lastError = null;
 
-    const gemini = new GoogleGenerativeAI(apiKey);
-    const model = gemini.getGenerativeModel({
-      model: "gemini-1.5-flash",
-      systemInstruction: this.getSystemPrompt()
-    });
+    // Try each key in the rotation
+    // We limit attempts to the number of keys we have to ensure we try a full rotation if needed
+    // but avoid infinite loops.
+    const maxKeyAttempts = Math.max(this.geminiKeys.length, 1);
 
-    const result = await model.generateContent(prompt);
-    const analysis = result.response.text();
+    for (let i = 0; i < maxKeyAttempts; i++) {
+      const apiKey = this.getNextGeminiKey();
+      if (!apiKey) throw new Error('No Gemini API keys configured');
 
-    console.log(`   🔑 Used Gemini key #${this.currentKeyIndex} of ${this.geminiKeys.length}`);
-    return this.parseProfessionalSignal(analysis, marketData, timeframe, userContext, 'gemini');
+      // For each key, try our preferred models in order
+      for (const modelName of models) {
+        try {
+          // Only log the attempt if it's the first model or a retry
+          if (i === 0 && modelName === models[0]) {
+            console.log(`   🔄 Trying Gemini... (Key #${this.currentKeyIndex}, Model: ${modelName})`);
+          } else {
+            console.log(`   ⚠️ Retry: Switching to Key #${this.currentKeyIndex}, Model: ${modelName}...`);
+          }
+
+          const gemini = new GoogleGenerativeAI(apiKey);
+          const model = gemini.getGenerativeModel({
+            model: modelName,
+            systemInstruction: this.getSystemPrompt()
+          });
+
+          const result = await model.generateContent(prompt);
+          const analysis = result.response.text();
+
+          console.log(`   ✅ Gemini Success! (Used Key #${this.currentKeyIndex}, Model: ${modelName})`);
+          return this.parseProfessionalSignal(analysis, marketData, timeframe, userContext, 'gemini');
+
+        } catch (error) {
+          lastError = error;
+          const isQuotaError = error.message.includes('429') || error.message.includes('Quota') || error.message.includes('Resource has been exhausted');
+
+          if (isQuotaError) {
+            console.warn(`   ⚠️ Quota limit on Key #${this.currentKeyIndex}. Rotating key...`);
+            // Break the model loop to try the NEXT key immediately
+            break;
+          }
+
+          // If it's not a quota error (e.g. 404 Model Not Found), we try the next model on the SAME key
+          console.warn(`   ⚠️ Model ${modelName} failed on Key #${this.currentKeyIndex}: ${error.message}`);
+        }
+      }
+    }
+
+    throw new Error(`All Gemini attempts failed. Last error: ${lastError?.message}`);
   }
 
   // ----------------------------------------------------------------------
