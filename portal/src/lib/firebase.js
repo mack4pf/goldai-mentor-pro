@@ -12,8 +12,21 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-const db = getFirestore(app);
-const auth = getAuth(app);
+let app, db, auth;
+
+if (typeof window !== "undefined" || (process.env.NEXT_PUBLIC_FIREBASE_API_KEY && process.env.NEXT_PUBLIC_FIREBASE_API_KEY !== "your_api_key_here")) {
+    try {
+        app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+        db = getFirestore(app);
+        auth = getAuth(app);
+    } catch (error) {
+        console.error("Firebase initialization failed:", error);
+    }
+} else {
+    // Dummy objects for build time
+    app = {};
+    db = {};
+    auth = {};
+}
 
 export { db, auth };

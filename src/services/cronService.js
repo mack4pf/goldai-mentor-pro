@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const openaiService = require('./openaiService');
 const databaseService = require('./databaseService');
+const axios = require('axios');
 
 class CronService {
     constructor() {
@@ -55,8 +56,11 @@ class CronService {
                 await databaseService.createSignal(signalDoc);
                 console.log(`   ✅ MASTER SETUP FOUND (${masterSignal.strategyGrade} - ${masterSignal.confidence}%): Broadcasting...`);
 
-                // Broadcast the winner
+                // 1. Broadcast to Telegram users
                 await this.broadcastToTelegram(masterSignal, { timeframe: masterSignal.timeframe, tier: 'Master Account' });
+
+                // 2. Push to Bridge API for Master EA
+                await this.pushToBridge(masterSignal);
             } else {
                 // NO CLEAR SETUP
                 console.log('   🤫 NO CLEAR SETUP FOUND across timeframes. Sending update...');
@@ -150,6 +154,67 @@ class CronService {
     async notifyNoTrade(signal, config) {
         // PER USER REQUEST: Do NOT broadcast/spam if signal is weak.
         console.log(`   🤫 Silencing weak broadcast for ${config.timeframe} ${config.tier} (Confidence: ${signal.confidence}%)`);
+    }
+
+    /**
+     * Push signal to Bridge API
+     * The Bridge will store it in watchlist for Master EA to pick up
+     */
+    async pushToBridge(signal) {
+        try {
+            const bridgeUrl = process.env.BRIDGE_API_URL || 'https://goldai-bridge-is7d.onrender.com/api/v1';
+
+            // Format signal for Bridge API
+            const bridgeSignal = {
+                symbol: 'XAUUSD',
+                type: signal.signal.replace('STRONG_', ''), // BUY or SELL
+                entry: signal.entry,
+                sl: signal.stopLoss,
+                tp: signal.takeProfit1,
+                tp2: signal.takeProfit2 || signal.takeProfit1, // Use TP2 if available
+                timeframe: signal.timeframe || 'MASTER',
+                confidence: signal.confidence,
+                grade: signal.strategyGrade || 'A',
+                timestamp: new Date().toISOString(),
+                source: 'MENTOR_PRO_MASTER'
+            };
+
+            console.log(`   📡 Pushing signal to Bridge API: ${bridgeUrl}/signals`);
+
+            const response = await axios.post(
+                `${bridgeUrl}/signals`,
+                bridgeSignal,
+                {
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 10000
+                }
+            );
+
+            if (response.status === 200 && response.data.success) {
+                console.log(`   ✅ Signal pushed to Bridge successfully`);
+                console.log(`      Signal ID: ${response.data.signalId}`);
+                console.log(`      Quality Score: ${response.data.qualityScore}`);
+                console.log(`      Distributed to: ${response.data.distributed} users`);
+            } else {
+                console.log(`   ⚠️  Bridge response: ${JSON.stringify(response.data)}`);
+            }
+
+        } catch (error) {
+            console.error(`   ❌ Failed to push signal to Bridge:`, error.message);
+
+            if (error.response) {
+                console.error(`      Status: ${error.response.status}`);
+                console.error(`      Data:`, error.response.data);
+            } else if (error.request) {
+                console.error(`      No response from Bridge API`);
+                console.error(`      Check if Bridge is running at: ${process.env.BRIDGE_API_URL}`);
+            }
+
+            // Don't throw - we don't want to stop Telegram broadcast if Bridge fails
+            console.log(`   ℹ️  Continuing with Telegram broadcast despite Bridge error...`);
+        }
     }
 }
 

@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import axios from "axios";
 import {
-    Users,
+    Users as UsersIcon,
     Key,
     Plus,
     Monitor,
@@ -11,33 +14,106 @@ import {
     Filter,
     CheckCircle2,
     XCircle,
-    Copy
+    Copy,
+    LogOut,
+    RefreshCw,
+    TrendingUp
 } from "lucide-react";
 
-export default function AdminDashboard() {
-    const [codes, setCodes] = useState([
-        { code: "GOLD-XL-4589", plan: "Lifetime", status: "Active", user: "John Doe" },
-        { code: "GOLD-30-7712", plan: "30 Days", status: "Unused", user: "-" },
-        { code: "GOLD-90-2210", plan: "90 Days", status: "Expired", user: "Sarah Smith" },
-    ]);
+const ADMIN_EMAIL = "mackiyeritufu@gmail.com";
 
-    const generateCode = () => {
-        const newCode = {
-            code: `GOLD-NEW-${Math.floor(1000 + Math.random() * 9000)}`,
-            plan: "Lifetime",
-            status: "Unused",
-            user: "-"
-        };
-        setCodes([newCode, ...codes]);
+export default function AdminDashboard() {
+    const { user, logout, loading: authLoading } = useAuth();
+    const router = useRouter();
+
+    const [codes, setCodes] = useState([]);
+    const [stats, setStats] = useState({
+        users: { total: 0, active: 0, suspended: 0 },
+        mt5: { totalConnections: 0 },
+        trades: { today: 0, successfulToday: 0, failedToday: 0 },
+        accessCodes: { total: 0, unused: 0, used: 0 }
+    });
+    const [loading, setLoading] = useState(false);
+    const [fetching, setFetching] = useState(true);
+
+    const BRIDGE_API_URL = process.env.NEXT_PUBLIC_BRIDGE_API_URL || 'https://goldai-bridge-is7d.onrender.com/api/v1';
+
+    const fetchData = useCallback(async () => {
+        if (!user) return;
+        setFetching(true);
+        try {
+            const token = await user.getIdToken();
+            const config = { headers: { Authorization: `Bearer ${token}` } };
+
+            // 1. Fetch Stats
+            const statsRes = await axios.get(`${BRIDGE_API_URL}/admin/stats`, config);
+            if (statsRes.data.success) {
+                setStats(statsRes.data.stats);
+            }
+
+            // 2. Fetch Access Codes
+            const codesRes = await axios.get(`${BRIDGE_API_URL}/admin/access-codes`, config);
+            if (codesRes.data.success) {
+                setCodes(codesRes.data.codes);
+            }
+        } catch (error) {
+            console.error("Admin fetch error:", error);
+            if (error.response?.status === 403) {
+                alert("Unauthorized: Admin access required");
+                router.push("/dashboard");
+            }
+        } finally {
+            setFetching(false);
+        }
+    }, [user, BRIDGE_API_URL, router]);
+
+    useEffect(() => {
+        if (!authLoading) {
+            if (!user) {
+                router.push("/login");
+            } else if (user.email !== ADMIN_EMAIL) {
+                router.push("/dashboard");
+            } else {
+                fetchData();
+            }
+        }
+    }, [user, authLoading, router, fetchData]);
+
+    const generateCode = async () => {
+        setLoading(true);
+        try {
+            const token = await user.getIdToken();
+            const response = await axios.post(
+                `${BRIDGE_API_URL}/admin/access-codes/generate`,
+                { count: 1, expiryDays: 30 },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+
+            if (response.data.success) {
+                fetchData(); // Refresh list
+            }
+        } catch (error) {
+            alert("Failed to generate code");
+        } finally {
+            setLoading(false);
+        }
     };
+
+    if (authLoading || (!user && !authLoading)) {
+        return (
+            <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+                <div className="w-12 h-12 border-4 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-[#0a0a0a] text-white flex">
-            {/* Sidebar - Same as Dashboard but with Admin Nav */}
+            {/* Sidebar */}
             <aside className="w-64 border-r border-white/5 bg-black/20 flex flex-col p-6 max-md:hidden">
                 <div className="flex items-center gap-2 mb-10">
                     <div className="w-8 h-8 bg-amber-600 rounded-lg flex items-center justify-center font-bold text-black border-2 border-black/20">A</div>
-                    <span className="font-bold text-xl tracking-tight uppercase">Admin Core</span>
+                    <span className="font-bold text-xl tracking-tight uppercase tracking-widest text-[#f59e0b]">Admin Core</span>
                 </div>
 
                 <nav className="flex flex-col gap-2">
@@ -45,69 +121,91 @@ export default function AdminDashboard() {
                         <Key className="w-5 h-5" /> Access Codes
                     </button>
                     <button className="flex items-center gap-3 px-4 py-3 text-white/40 hover:text-white transition-all rounded-xl font-medium text-left">
-                        <Users className="w-5 h-5" /> All Users
+                        <UsersIcon className="w-5 h-5" /> All Users
                     </button>
                     <button className="flex items-center gap-3 px-4 py-3 text-white/40 hover:text-white transition-all rounded-xl font-medium text-left">
                         <Monitor className="w-5 h-5" /> Master VPS
                     </button>
                 </nav>
+
+                <div className="mt-auto flex flex-col gap-2">
+                    <button
+                        onClick={() => logout().then(() => router.push("/"))}
+                        className="flex items-center gap-3 px-4 py-3 text-red-500/60 hover:text-red-500 hover:bg-red-500/5 transition-all rounded-xl font-medium text-left"
+                    >
+                        <LogOut className="w-5 h-5" /> Logout
+                    </button>
+                </div>
             </aside>
 
             {/* Main Content */}
             <main className="flex-1 p-8 overflow-y-auto">
                 <header className="flex justify-between items-center mb-10">
                     <div>
-                        <h1 className="text-3xl font-bold mb-1">Administrative Control</h1>
+                        <h1 className="text-3xl font-black uppercase tracking-tight mb-1">Administrative Control</h1>
                         <p className="text-white/40">Manage licenses, connection codes, and copier health.</p>
                     </div>
-                    <button
-                        onClick={generateCode}
-                        className="px-6 py-3 bg-white text-black font-bold rounded-2xl flex items-center gap-2 hover:bg-amber-500 transition-all shadow-lg shadow-white/5"
-                    >
-                        <Plus className="w-5 h-5" /> Generate New Code
-                    </button>
+                    <div className="flex items-center gap-4">
+                        <button
+                            onClick={fetchData}
+                            className={`p-3 rounded-2xl border border-white/10 bg-white/5 text-white/40 hover:text-white transition-all ${fetching ? 'animate-spin' : ''}`}
+                        >
+                            <RefreshCw className="w-5 h-5" />
+                        </button>
+                        <button
+                            onClick={generateCode}
+                            disabled={loading}
+                            className="px-6 py-4 bg-white text-black font-black uppercase tracking-widest text-xs rounded-2xl flex items-center gap-2 hover:bg-amber-500 transition-all shadow-xl shadow-white/5 disabled:opacity-50"
+                        >
+                            <Plus className="w-5 h-5" /> {loading ? "Generating..." : "New Access Code"}
+                        </button>
+                    </div>
                 </header>
 
                 {/* Global Overview */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
-                    <div className="p-6 rounded-3xl bg-white/5 border border-white/10">
-                        <p className="text-white/40 text-sm mb-1 uppercase font-bold tracking-wider">Total Revenue</p>
-                        <h2 className="text-3xl font-bold">$12,450</h2>
+                    <div className="p-8 rounded-[2rem] bg-white/[0.03] border border-white/10">
+                        <p className="text-white/40 text-[10px] mb-2 uppercase font-black tracking-[0.2em]">Total Users</p>
+                        <h2 className="text-3xl font-black">{stats.users.total}</h2>
+                        <p className="text-[10px] text-green-500 font-bold mt-2">{stats.users.active} Active Accounts</p>
                     </div>
-                    <div className="p-6 rounded-3xl bg-white/5 border border-white/10">
-                        <p className="text-white/40 text-sm mb-1 uppercase font-bold tracking-wider">Active Copies</p>
-                        <h2 className="text-3xl font-bold text-amber-500">84 <span className="text-xs text-white/20">/ 100</span></h2>
+                    <div className="p-8 rounded-[2rem] bg-white/[0.03] border border-white/10">
+                        <p className="text-white/40 text-[10px] mb-2 uppercase font-black tracking-[0.2em]">Active Copies</p>
+                        <h2 className="text-3xl font-black text-amber-500">{stats.mt5.totalConnections} <span className="text-xs text-white/20">/ 100</span></h2>
+                        <p className="text-[10px] text-white/20 font-bold mt-2">Server Capacity: 84%</p>
                     </div>
-                    <div className="p-6 rounded-3xl bg-white/5 border border-white/10">
-                        <p className="text-white/40 text-sm mb-1 uppercase font-bold tracking-wider">Success Rate</p>
-                        <h2 className="text-3xl font-bold text-green-500">99.8%</h2>
+                    <div className="p-8 rounded-[2rem] bg-white/[0.03] border border-white/10">
+                        <p className="text-white/40 text-[10px] mb-2 uppercase font-black tracking-[0.2em]">Trades Today</p>
+                        <h2 className="text-3xl font-black text-white">{stats.trades.today}</h2>
+                        <p className="text-[10px] text-green-500 font-bold mt-2">{stats.trades.successfulToday} Success Hits</p>
                     </div>
-                    <div className="p-6 rounded-3xl bg-white/10 border border-amber-500/30">
-                        <p className="text-white/40 text-sm mb-1 uppercase font-bold tracking-wider">Master Ping</p>
-                        <div className="flex items-center gap-2 text-xl font-bold">
-                            <div className="w-3 h-3 bg-green-500 rounded-full animate-ping" />
-                            14ms
+                    <div className="p-8 rounded-[2rem] bg-white/10 border border-amber-500/30 shadow-lg shadow-amber-500/5">
+                        <p className="text-amber-500 text-[10px] mb-2 uppercase font-black tracking-[0.2em]">Available Codes</p>
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-3xl font-black">{stats.accessCodes.unused}</h2>
+                            <TrendingUp className="w-6 h-6 text-amber-500/20" />
                         </div>
+                        <p className="text-[10px] text-white/40 font-bold mt-2">{stats.accessCodes.used} Codes Consumed</p>
                     </div>
                 </div>
 
                 {/* Access Codes Table */}
-                <section className="bg-white/5 border border-white/10 rounded-3xl overflow-hidden">
-                    <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/[0.02]">
-                        <h3 className="font-bold flex items-center gap-2">
-                            <Filter className="w-4 h-4" /> License Management
+                <section className="bg-white/5 border border-white/10 rounded-[2.5rem] overflow-hidden backdrop-blur-md">
+                    <div className="p-8 border-b border-white/5 flex justify-between items-center bg-white/[0.01]">
+                        <h3 className="font-black uppercase tracking-widest text-sm flex items-center gap-3">
+                            <Filter className="w-4 h-4 text-amber-500" /> License Registry
                         </h3>
-                        <div className="flex gap-2">
+                        <div className="flex gap-3">
                             <div className="relative">
-                                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-white/20" />
+                                <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-white/20" />
                                 <input
                                     type="text"
-                                    placeholder="Search codes..."
-                                    className="bg-black/40 border border-white/10 rounded-xl pl-10 pr-4 py-2 text-sm focus:outline-none focus:border-amber-500/30 transition-all"
+                                    placeholder="Search registry..."
+                                    className="bg-black/40 border border-white/10 rounded-2xl pl-12 pr-6 py-3 text-sm focus:outline-none focus:border-amber-500/30 transition-all font-medium"
                                 />
                             </div>
-                            <button className="p-2 border border-white/10 rounded-xl hover:bg-white/5 transition-all">
-                                <Download className="w-4 h-4" />
+                            <button className="p-3 border border-white/10 rounded-2xl hover:bg-white/5 transition-all text-white/40 hover:text-white">
+                                <Download className="w-5 h-5" />
                             </button>
                         </div>
                     </div>
@@ -115,35 +213,46 @@ export default function AdminDashboard() {
                     <div className="overflow-x-auto">
                         <table className="w-full text-left">
                             <thead>
-                                <tr className="border-b border-white/5 text-white/40 text-xs uppercase tracking-widest">
-                                    <th className="px-8 py-5">Access Code</th>
-                                    <th className="px-8 py-5">Plan Detail</th>
-                                    <th className="px-8 py-5">Assigned User</th>
-                                    <th className="px-8 py-5">Status</th>
-                                    <th className="px-8 py-5 text-right">Actions</th>
+                                <tr className="border-b border-white/5 text-white/20 text-[10px] font-black uppercase tracking-[0.2em]">
+                                    <th className="px-10 py-6">Unique Access Token</th>
+                                    <th className="px-10 py-6">Plan Tier</th>
+                                    <th className="px-10 py-6">Consumer Identity</th>
+                                    <th className="px-10 py-6">Lifecycle Status</th>
+                                    <th className="px-10 py-6 text-right">Registry Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-white/5">
                                 {codes.map((code, i) => (
-                                    <tr key={i} className="hover:bg-white/[0.02] transition-all group">
-                                        <td className="px-8 py-5">
-                                            <code className="text-amber-500 font-bold font-mono px-2 py-1 bg-amber-500/10 rounded border border-amber-500/20">{code.code}</code>
+                                    <tr key={code.id || i} className="hover:bg-white/[0.02] transition-all group">
+                                        <td className="px-10 py-6">
+                                            <code className="text-amber-500 font-bold font-mono px-3 py-1.5 bg-amber-500/5 rounded-xl border border-amber-500/10 text-xs">
+                                                {code.code}
+                                            </code>
                                         </td>
-                                        <td className="px-8 py-5 font-medium">{code.plan}</td>
-                                        <td className="px-8 py-5 text-white/60">{code.user}</td>
-                                        <td className="px-8 py-5">
-                                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border ${code.status === 'Active'
-                                                    ? 'bg-green-500/10 text-green-500 border-green-500/20'
-                                                    : code.status === 'Unused'
-                                                        ? 'bg-amber-500/10 text-amber-500 border-amber-500/20'
-                                                        : 'bg-white/5 text-white/20 border-white/10'
+                                        <td className="px-10 py-6">
+                                            <span className="text-xs font-black uppercase tracking-wider text-white/60">
+                                                {code.plan || 'Standard 30D'}
+                                            </span>
+                                        </td>
+                                        <td className="px-10 py-6">
+                                            <div className="flex flex-col">
+                                                <span className="text-sm font-bold">{code.usedBy || '-'}</span>
+                                                {code.usedAt && <span className="text-[9px] text-white/20 uppercase font-bold">Claimed {new Date(code.usedAt).toLocaleDateString()}</span>}
+                                            </div>
+                                        </td>
+                                        <td className="px-10 py-6">
+                                            <span className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.1em] border ${code.status === 'used'
+                                                ? 'bg-green-500/10 text-green-500 border-green-500/20'
+                                                : code.status === 'unused'
+                                                    ? 'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                                                    : 'bg-white/5 text-white/20 border-white/10'
                                                 }`}>
-                                                {code.status === 'Active' ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                                                {code.status === 'used' ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
                                                 {code.status}
                                             </span>
                                         </td>
-                                        <td className="px-8 py-5 text-right">
-                                            <button className="p-2 text-white/20 hover:text-white transition-all opacity-0 group-hover:opacity-100">
+                                        <td className="px-10 py-6 text-right">
+                                            <button className="p-2.5 text-white/10 hover:text-amber-500 transition-all opacity-0 group-hover:opacity-100 bg-white/5 rounded-xl">
                                                 <Copy className="w-4 h-4" />
                                             </button>
                                         </td>
@@ -151,6 +260,12 @@ export default function AdminDashboard() {
                                 ))}
                             </tbody>
                         </table>
+                        {codes.length === 0 && !fetching && (
+                            <div className="py-20 text-center opacity-30 flex flex-col items-center">
+                                <Key className="w-12 h-12 mb-4 stroke-[1]" />
+                                <p className="text-xs font-black uppercase tracking-[0.2em]">No Access Tokens Registered</p>
+                            </div>
+                        )}
                     </div>
                 </section>
             </main>

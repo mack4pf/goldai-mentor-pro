@@ -2,21 +2,13 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { ArrowRight, ShieldCheck, Zap, BarChart3, Lock } from "lucide-react";
 
 export default function LandingPage() {
   const [accessCode, setAccessCode] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-
-  const handleActivate = (e) => {
-    e.preventDefault();
-    setLoading(true);
-    // Simulate activation or redirect to login
-    setTimeout(() => {
-      router.push("/dashboard");
-    }, 1500);
-  };
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col items-center">
@@ -30,9 +22,9 @@ export default function LandingPage() {
             GoldAI Pro
           </span>
         </div>
-        <button className="px-6 py-2 bg-white/5 border border-white/10 rounded-full hover:bg-white/10 transition-all font-medium">
+        <Link href="/login" className="px-6 py-2 bg-white/5 border border-white/10 rounded-full hover:bg-white/10 transition-all font-medium">
           Login
-        </button>
+        </Link>
       </nav>
 
       <main className="flex-1 w-full max-w-4xl px-6 flex flex-col items-center justify-center text-center py-20">
@@ -60,7 +52,7 @@ export default function LandingPage() {
 
             <h2 className="text-2xl font-bold mb-2 text-white">Activate Your License</h2>
 
-            <form onSubmit={handleActivate} className="flex flex-col gap-4">
+            <form onSubmit={(e) => { e.preventDefault(); router.push(`/register?code=${accessCode}`); }} className="flex flex-col gap-4">
               <div className="relative">
                 <input
                   type="text"
