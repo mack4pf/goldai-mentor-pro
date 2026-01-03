@@ -10,6 +10,8 @@ const { db } = require('../firebaseConfig');
 const USER_COLLECTION = 'users';
 const SIGNAL_COLLECTION = 'signals';
 const TRADING_CONFIG_COLLECTION = 'trading_configs';
+const SYSTEM_CONFIG_COLLECTION = 'system_settings';
+const GLOBAL_CONFIG_DOC = 'global_config';
 
 class DatabaseService {
   constructor() {
@@ -169,6 +171,41 @@ class DatabaseService {
       todaySignals: todaySignals,
       databaseCreated: 'N/A (Firestore)'
     };
+  }
+
+  // --- SYSTEM CONFIG METHODS ---
+
+  async getSystemConfig() {
+    try {
+      const doc = await db.collection(SYSTEM_CONFIG_COLLECTION).doc(GLOBAL_CONFIG_DOC).get();
+      if (!doc.exists) {
+        // Initialize with default values if not exists
+        const defaultConfig = {
+          broadcastEnabled: true,
+          updatedAt: new Date().toISOString()
+        };
+        await db.collection(SYSTEM_CONFIG_COLLECTION).doc(GLOBAL_CONFIG_DOC).set(defaultConfig);
+        return defaultConfig;
+      }
+      return doc.data();
+    } catch (error) {
+      console.error('Error fetching system config:', error);
+      return { broadcastEnabled: true }; // Fallback to safe default
+    }
+  }
+
+  async updateSystemConfig(data) {
+    try {
+      const configRef = db.collection(SYSTEM_CONFIG_COLLECTION).doc(GLOBAL_CONFIG_DOC);
+      await configRef.set({
+        ...data,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      return true;
+    } catch (error) {
+      console.error('Error updating system config:', error);
+      return false;
+    }
   }
 }
 

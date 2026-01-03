@@ -17,7 +17,10 @@ import {
     Copy,
     LogOut,
     RefreshCw,
-    TrendingUp
+    TrendingUp,
+    Radio,
+    Zap,
+    ZapOff
 } from "lucide-react";
 
 const ADMIN_EMAIL = "mackiyeritufu@gmail.com";
@@ -33,6 +36,7 @@ export default function AdminDashboard() {
         trades: { today: 0, successfulToday: 0, failedToday: 0 },
         accessCodes: { total: 0, unused: 0, used: 0 }
     });
+    const [config, setConfig] = useState({ broadcastEnabled: true });
     const [loading, setLoading] = useState(false);
     const [fetching, setFetching] = useState(true);
 
@@ -55,6 +59,12 @@ export default function AdminDashboard() {
             const codesRes = await axios.get(`${BRIDGE_API_URL}/admin/access-codes`, config);
             if (codesRes.data.success) {
                 setCodes(codesRes.data.codes);
+            }
+
+            // 3. Fetch System Config
+            const configRes = await axios.get(`${BRIDGE_API_URL}/admin/config`, config);
+            if (configRes.data.success) {
+                setConfig(configRes.data.config);
             }
         } catch (error) {
             console.error("Admin fetch error:", error);
@@ -94,6 +104,27 @@ export default function AdminDashboard() {
             }
         } catch (error) {
             alert("Failed to generate code");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const toggleBroadcast = async () => {
+        const newState = !config.broadcastEnabled;
+        setLoading(true);
+        try {
+            const token = await user.getIdToken();
+            const response = await axios.post(
+                `${BRIDGE_API_URL}/admin/config`,
+                { broadcastEnabled: newState },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+
+            if (response.data.success) {
+                setConfig({ ...config, broadcastEnabled: newState });
+            }
+        } catch (error) {
+            alert("Failed to update broadcast status");
         } finally {
             setLoading(false);
         }
@@ -186,6 +217,49 @@ export default function AdminDashboard() {
                             <TrendingUp className="w-6 h-6 text-amber-500/20" />
                         </div>
                         <p className="text-[10px] text-white/40 font-bold mt-2">{stats.accessCodes.used} Codes Consumed</p>
+                    </div>
+                </div>
+
+                {/* System Control Panel */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+                    <div className="p-8 rounded-[2rem] bg-amber-500/5 border border-amber-500/20 backdrop-blur-sm flex items-center justify-between">
+                        <div className="flex items-center gap-5">
+                            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${config.broadcastEnabled ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'}`}>
+                                {config.broadcastEnabled ? <Zap className="w-7 h-7" /> : <ZapOff className="w-7 h-7" />}
+                            </div>
+                            <div>
+                                <h3 className="font-black uppercase tracking-tight text-lg leading-tight">Signal Broadcast</h3>
+                                <p className="text-white/40 text-xs font-medium mt-1">
+                                    {config.broadcastEnabled
+                                        ? "Currently pushing hourly AI signals to all active users."
+                                        : "Signal generation is paused. No API requests are being made."}
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={toggleBroadcast}
+                            disabled={loading}
+                            className={`px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all border ${config.broadcastEnabled
+                                ? 'bg-red-500/10 text-red-500 border-red-500/20 hover:bg-red-500 hover:text-white'
+                                : 'bg-green-500/10 text-green-500 border-green-500/20 hover:bg-green-500 hover:text-white'}`}
+                        >
+                            {loading ? "..." : (config.broadcastEnabled ? "Shut Down" : "Initialize")}
+                        </button>
+                    </div>
+
+                    <div className="p-8 rounded-[2rem] bg-white/[0.03] border border-white/10 backdrop-blur-sm flex items-center justify-between opacity-50">
+                        <div className="flex items-center gap-5">
+                            <div className="w-14 h-14 rounded-2xl bg-white/5 text-white/40 flex items-center justify-center">
+                                <Radio className="w-7 h-7" />
+                            </div>
+                            <div>
+                                <h3 className="font-black uppercase tracking-tight text-lg leading-tight">Bridge Health</h3>
+                                <p className="text-white/40 text-xs font-medium mt-1">API latency: 42ms | Latency: 1.2s</p>
+                            </div>
+                        </div>
+                        <div className="px-4 py-2 bg-white/5 rounded-xl border border-white/10 text-[10px] font-black uppercase tracking-widest text-white/40">
+                            Nominal
+                        </div>
                     </div>
                 </div>
 

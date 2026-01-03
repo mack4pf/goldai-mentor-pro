@@ -34,11 +34,20 @@ class CronService {
         }
 
         this.isJobRunning = true;
-        console.log('================================================================================');
-        console.log(`⏰ HOURLY MASTER ANALYSIS - ${new Date().toISOString()}`);
-        console.log('================================================================================');
 
         try {
+            // Check if broadcasting is enabled
+            const config = await databaseService.getSystemConfig();
+            if (config.broadcastEnabled === false) {
+                console.log('🔇 SIGNAL BROADCAST IS DISABLED. Skipping Master Hourly Analysis...');
+                this.isJobRunning = false;
+                return;
+            }
+
+            console.log('================================================================================');
+            console.log(`⏰ HOURLY MASTER ANALYSIS - ${new Date().toISOString()}`);
+            console.log('================================================================================');
+
             console.log('   🔨 Compiling Multi-Timeframe Data (W1 -> M15)...');
 
             // The AI will receive the current market context and analyzed MTF data

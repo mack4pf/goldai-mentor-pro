@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, User, Mail, Lock, Key, ShieldCheck, AlertCircle } from "lucide-react";
+import { ArrowRight, User, Mail, Lock, Key, ShieldCheck, AlertCircle, Zap } from "lucide-react";
 import axios from "axios";
 import Link from "next/link";
 

@@ -108,15 +108,21 @@ const mainKeyboard = {
   }
 };
 
-const adminKeyboard = {
-  reply_markup: {
-    keyboard: [
-      ['👑 Create User', '📊 List Users'],
-      ['⬅️ Main Menu']
-    ],
-    resize_keyboard: true,
-    one_time_keyboard: true
-  }
+const adminKeyboard = async () => {
+  const config = await databaseService.getSystemConfig();
+  const statusEmoji = config.broadcastEnabled ? '🟢' : '🔴';
+  const toggleText = config.broadcastEnabled ? '📡 Disable Broadcast' : '📡 Enable Broadcast';
+
+  return {
+    reply_markup: {
+      keyboard: [
+        ['👑 Create User', '📊 List Users'],
+        [toggleText, '⬅️ Main Menu']
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: true
+    }
+  };
 };
 
 // Remove keyboard
@@ -390,6 +396,22 @@ bot.on('message', async (msg) => {
       case '📊 List Users':
         if (msg.from.id.toString() === process.env.ADMIN_TELEGRAM_ID) {
           handleAdminCommand(chatId, text);
+        } else {
+          bot.sendMessage(chatId, '❌ Admin access required.');
+        }
+        break;
+
+      case '📡 Enable Broadcast':
+      case '📡 Disable Broadcast':
+        if (msg.from.id.toString() === process.env.ADMIN_TELEGRAM_ID) {
+          const enable = text === '📡 Enable Broadcast';
+          await databaseService.updateSystemConfig({ broadcastEnabled: enable });
+          const status = enable ? 'ENABLED 🟢' : 'DISABLED 🔴';
+          bot.sendMessage(chatId, `✅ Signal Broadcasting has been **${status}**.\n\n` +
+            (enable ? 'Hourly signals will now be generated and sent.' : 'No more hourly signals will be sent until enabled.'), {
+            parse_mode: 'HTML',
+            reply_markup: (await adminKeyboard()).reply_markup
+          });
         } else {
           bot.sendMessage(chatId, '❌ Admin access required.');
         }
@@ -806,7 +828,8 @@ async function handleHelp(chatId, telegramId) {
   if (isAdmin) {
     helpText += `\n\n<b>👑 Admin Commands:</b>\n` +
       `<code>/admin create basic|premium</code>\n` +
-      `<code>/admin users</code> - List all users`;
+      `<code>/admin users</code> - List all users\n` +
+      `<code>/admin broadcast on|off</code> - Toggle signals`;
   }
 
   await bot.sendMessage(chatId, helpText, {
@@ -827,9 +850,21 @@ async function handleAnalysisType(chatId, type) {
   await bot.sendMessage(chatId, `Starting ${analysisTypes[type]}... This feature is coming soon!`);
 }
 
-function handleAdminCommand(chatId, command) {
-  // Admin command handlers would go here
-  bot.sendMessage(chatId, `Admin command: ${command} - Implementation needed`);
+async function handleAdminCommand(chatId, command) {
+  if (command === '👑 Create User') {
+    bot.sendMessage(chatId, 'Use `/admin create basic|premium` to generate a new user code.', {
+      reply_markup: (await adminKeyboard()).reply_markup
+    });
+  } else if (command === '📊 List Users') {
+    // We can reuse the existing logic or link to /admin users
+    bot.sendMessage(chatId, 'Use `/admin users` to see the full list of active/inactive users.', {
+      reply_markup: (await adminKeyboard()).reply_markup
+    });
+  } else {
+    bot.sendMessage(chatId, `Admin Action: ${command}`, {
+      reply_markup: (await adminKeyboard()).reply_markup
+    });
+  }
 }
 
 // ==================== TEXT COMMANDS (Backward Compatibility) ====================
@@ -924,6 +959,26 @@ bot.onText(/\/admin users/, async (msg) => {
     console.error('Admin users error:', error);
     await bot.sendMessage(chatId, '❌ Error listing users');
   }
+});
+
+bot.onText(/\/admin broadcast (on|off)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const adminId = msg.from.id;
+  const action = match[1].toLowerCase();
+
+  if (adminId.toString() !== process.env.ADMIN_TELEGRAM_ID) {
+    await bot.sendMessage(chatId, '❌ Unauthorized: Admin access required');
+    return;
+  }
+
+  const enable = action === 'on';
+  await databaseService.updateSystemConfig({ broadcastEnabled: enable });
+  const status = enable ? 'ENABLED 🟢' : 'DISABLED 🔴';
+
+  await bot.sendMessage(chatId, `✅ Signal Broadcasting has been **${status}** via command.`, {
+    parse_mode: 'HTML',
+    reply_markup: (await adminKeyboard()).reply_markup
+  });
 });
 
 console.log('✅ GoldAI Mentor Pro Bot started successfully!');
