@@ -128,12 +128,12 @@ void ProcessSignal(string json)
     sig.grade = GetJsonValue(json, "grade");
 
     // Skip if it's the same signal we already processed
-    if(sig.id == last_signal_id) return;
+    if(sig.id == last_signal_id && last_signal_id != "") return;
     
     // Skip if not XAUUSD
     if(sig.symbol != "XAUUSD") return;
 
-    Print("📥 New Signal Received: ", sig.type, " ID: ", sig.id);
+    Print("📥 [MATCH] New Gold Signal: ", sig.type, " | ID: ", sig.id, " | Entry: ", sig.entry);
 
     // Check for opposite signal
     if(current_signal_type != "" && sig.type != current_signal_type)
@@ -351,6 +351,13 @@ string GetJsonValue(string json, string key)
     
     startIdx += StringLen(search);
     
+    // Skip any potential spaces after colon
+    while(startIdx < StringLen(json) && 
+          (StringSubstr(json, startIdx, 1) == " " || StringSubstr(json, startIdx, 1) == "\t"))
+    {
+        startIdx++;
+    }
+    
     // Check if value is string or number
     int endIdx;
     if(StringSubstr(json, startIdx, 1) == "\"")
@@ -360,11 +367,18 @@ string GetJsonValue(string json, string key)
     }
     else
     {
+        // For numbers, find next separator
         endIdx = StringFind(json, ",", startIdx);
         if(endIdx == -1) endIdx = StringFind(json, "}", startIdx);
+        if(endIdx == -1) endIdx = StringFind(json, " ", startIdx);
     }
     
     if(endIdx == -1) return "";
-    return StringSubstr(json, startIdx, endIdx - startIdx);
+    
+    string result = StringSubstr(json, startIdx, endIdx - startIdx);
+    StringTrimLeft(result);
+    StringTrimRight(result);
+    
+    return result;
 }
 //+------------------------------------------------------------------+
