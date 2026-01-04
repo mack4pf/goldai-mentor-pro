@@ -115,7 +115,7 @@ router.post('/signals', async (req, res) => {
 /**
  * GET /api/v1/watchlist
  */
-router.get('/watchlist', validateBridgeToken, forceMasterUser, async (req, res) => {
+router.get('/watchlist', forceMasterUser, async (req, res) => {
     try {
         const snapshot = await db.collection('watchlist')
             .where('userId', '==', req.userId)
