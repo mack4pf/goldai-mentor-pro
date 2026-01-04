@@ -283,6 +283,9 @@ void ExecuteSplitTrade(SignalData &sig)
             current_signal_type = sig.type;
             trades_today++;
             Print("✅ Successfully opened 2 split positions for Signal ", sig.id, " (Trades today: ", trades_today, ")");
+            
+            // Broadcast open event
+            BroadcastTradeEvent("OPEN", price, lot * 2, sig.sl, sig.id);
         }
     }
 }
@@ -320,8 +323,11 @@ void ManagePositions()
                 {
                     if(pos.StopLoss() != pos.PriceOpen())
                     {
-                        trade.PositionModify(pos.Ticket(), pos.PriceOpen(), pos.TakeProfit());
-                        Print("⏰ Safety rule: Moved Ticket ", pos.Ticket(), " to Breakeven (120 min limit)");
+                        if(trade.PositionModify(pos.Ticket(), pos.PriceOpen(), pos.TakeProfit()))
+                        {
+                            Print("⏰ Safety rule: Moved Ticket ", pos.Ticket(), " to Breakeven (120 min limit)");
+                            BroadcastTradeEvent("MODIFY_SL", pos.PriceOpen(), pos.Volume(), pos.PriceOpen(), comment);
+                        }
                     }
                 }
             }
@@ -338,8 +344,11 @@ void ManagePositions()
         // Only modify if not already moved
         if((current_signal_type == "BUY" && t2_sl < t2_entry) || (current_signal_type == "SELL" && t2_sl > t2_entry))
         {
-             trade.PositionModify(t2_ticket, desiredBE, t2_tp);
-             Print("🛡️ TP1 Secured: Moving T2 Ticket ", t2_ticket, " to BE + 25% Buffer");
+             if(trade.PositionModify(t2_ticket, desiredBE, t2_tp))
+             {
+                 Print("🛡️ TP1 Secured: Moving T2 Ticket ", t2_ticket, " to BE + 25% Buffer");
+                 BroadcastTradeEvent("MODIFY_SL", t2_entry, activePositionVolume(t2_ticket), desiredBE, "T2_BE");
+             }
         }
         
         // TP-ZONE PROTECTION: Tighten SL at 90% completion
@@ -351,8 +360,11 @@ void ManagePositions()
             double secureSL = (current_signal_type == "BUY") ? t2_entry + (tpDistance * 0.85) : t2_entry - (tpDistance * 0.85);
             if((current_signal_type == "BUY" && t2_sl < secureSL) || (current_signal_type == "SELL" && t2_sl > secureSL))
             {
-                trade.PositionModify(t2_ticket, secureSL, t2_tp);
-                Print("🎯 Zone Protection: Moved T2 SL to 85% TP to lock runner profit");
+                if(trade.PositionModify(t2_ticket, secureSL, t2_tp))
+                {
+                    Print("🎯 Zone Protection: Moved T2 SL to 85% TP to lock runner profit");
+                    BroadcastTradeEvent("MODIFY_SL", t2_entry, activePositionVolume(t2_ticket), secureSL, "ZONE_PROTECT");
+                }
             }
         }
     }
@@ -379,7 +391,14 @@ void CloseAllTrades()
         {
             if(pos.Magic() == Magic_Number)
             {
-                trade.PositionClose(pos.Ticket());
+                ulong ticket = pos.Ticket();
+                double price = pos.PriceCurrent();
+                double vol = pos.Volume();
+                string comment = pos.Comment();
+                if(trade.PositionClose(ticket))
+                {
+                    BroadcastTradeEvent("CLOSE", price, vol, 0, comment);
+                }
             }
         }
     }
@@ -441,5 +460,42 @@ string GetJsonValue(string json, string key)
     StringTrimRight(result);
     
     return result;
+}
+
+//+------------------------------------------------------------------+
+//| Get volume of an active position                                 |
+//+------------------------------------------------------------------+
+double activePositionVolume(ulong ticket)
+{
+    if(PositionSelectByTicket(ticket)) return PositionGetDouble(POSITION_VOLUME);
+    return 0;
+}
+
+//+------------------------------------------------------------------+
+//| Broadcast trade event to copier via Bridge                       |
+//+------------------------------------------------------------------+
+void BroadcastTradeEvent(string operation, double price, double lots, double sl, string signalId)
+{
+    string url = API_URL + "/copier/master/trade";
+    
+    string json = "{";
+    json += "\"symbol\":\"XAUUSD\",";
+    json += "\"type\":\"" + current_signal_type + "\",";
+    json += "\"operation\":\"" + operation + "\",";
+    json += "\"price\":" + DoubleToString(price, 5) + ",";
+    json += "\"sl\":" + DoubleToString(sl, 5) + ",";
+    json += "\"lotSize\":" + DoubleToString(lots, 2) + ",";
+    json += "\"signalId\":\"" + signalId + "\"";
+    json += "}";
+    
+    char postData[];
+    StringToCharArray(json, postData, 0, StringLen(json));
+    
+    char result[];
+    string resultHeaders;
+    string headers = "Content-Type: application/json\r\n";
+    
+    int res = WebRequest("POST", url, headers, 5000, postData, result, resultHeaders);
+    if(res != 200) Print("⚠️ Copier Broadcast Failed: HTTP ", res);
 }
 //+------------------------------------------------------------------+
