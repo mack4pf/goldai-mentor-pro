@@ -35,6 +35,7 @@ When the settings window appears:
 
 **Inputs Tab:**
 - `API_URL`: `https://goldai-bridge-is7d.onrender.com/api/v1`
+- `License_Key`: Your active license key (e.g., `GOLDAI-TEST-XXXX`).
 - `Magic_Number`: Unique ID for this EA (e.g., `112233`).
 - `Poll_Interval`: Set to `60` for 1-minute polling.
 
@@ -58,7 +59,15 @@ When the settings window appears:
 7. **Opposite Signal**: If a SELL signal arrives while BUY trades are open, the EA will close all current buys and execute the sell immediately.
 8. **Time Limit**: If a trade stays open > 120 minutes, SL is moved to Breakeven automatically.
 
+## 🔐 Licensing
+- The EA requires a valid **License Key** to operate.
+- **Trial**: 7-Day Free Trial keys (`GOLDAI-TEST-...`) are available via the Telegram Bot.
+- **Premium**: Full 30-day keys (`GOLDAI-XXXX-...`) unlock unlimited trading.
+- The EA checks license validity on startup and every hour. If expired, it stops trading immediately.
+
 ## 🚀 Verification
 Check the **Experts** tab in MT5 to see logs like:
+`🔑 Verifying License Key: GOLDAI-TEST-123`
+`✅ License Valid! Expires: 2024-05-20`
 `📥 New Signal Received: BUY ID: SIG-123`
 `🛡️ TP1 Secured: Moving T2 Ticket 123456 to BE + 25% Buffer`

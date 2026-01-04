@@ -16,6 +16,7 @@
 //| INPUT PARAMETERS                                                  |
 //+------------------------------------------------------------------+
 input string   API_URL = "https://goldai-bridge-is7d.onrender.com/api/v1";  // Bridge API URL
+input string   License_Key = "GOLDAI-TEST-XXXX";                      // License Key (Required)
 input int      Poll_Interval = 60;                                    // Poll Bridge every X seconds
 input int      Magic_Number = 112233;                                 // Magic Number
 input int      Max_Trades_Per_Day = 5;                               // Risk Control: Max trades/day
@@ -40,6 +41,9 @@ string         current_signal_type = ""; // To track opposite signals
 int            trades_today = 0;
 datetime       last_trade_day = 0;
 double         starting_balance_today = 0;
+bool           is_license_valid = false;
+datetime       last_license_check = 0;
+string         license_status_msg = "Checking License...";
 
 //+------------------------------------------------------------------+
 //| STRUCTURES                                                        |
@@ -67,6 +71,18 @@ int OnInit()
     last_trade_day = iTime(_Symbol, PERIOD_D1, 0);
     
     Print("🚀 GoldAI Master EA v1.0 Initialized");
+    Print("🔑 Verifying License Key: ", License_Key);
+    
+    // Initial License Check
+    CheckLicense();
+    
+    if(!is_license_valid)
+    {
+        Print("❌ LICENSE INVALID: ", license_status_msg);
+        return(INIT_FAILED);
+    }
+    
+    Print("✅ License Valid! Expires: ", license_status_msg);
     Print("Magic Number: ", Magic_Number);
     Print("Starting Equity: ", starting_balance_today);
     return(INIT_SUCCEEDED);
@@ -85,6 +101,19 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
+    // 0. Periodic License Check (Every 1 hour)
+    if(TimeCurrent() - last_license_check > 3600)
+    {
+        CheckLicense();
+        if(!is_license_valid)
+        {
+            Print("🛑 LICENSE EXPIRED/INVALID. Stopping trading.");
+            return;
+        }
+    }
+
+    if(!is_license_valid) return;
+
     // 1. Manage existing positions
     ManagePositions();
 
@@ -462,6 +491,53 @@ string GetJsonValue(string json, string key)
     return result;
 }
 
+//+------------------------------------------------------------------+
+//| Check License Validity against Bridge API                        |
+//+------------------------------------------------------------------+
+void CheckLicense()
+{
+    string url = API_URL + "/license/check?key=" + License_Key + "&account=" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN));
+    string headers = "Content-Type: application/json\r\n";
+    char postData[], result[];
+    string resultHeaders;
+    
+    int res = WebRequest("GET", url, headers, 5000, postData, result, resultHeaders);
+    
+    if(res == 200)
+    {
+        string json = CharArrayToString(result);
+        string success = GetJsonValue(json, "success");
+        string message = GetJsonValue(json, "message");
+        
+        if(success == "true")
+        {
+            is_license_valid = true;
+            string expires = GetJsonValue(json, "expiresAt");
+            // Basic date parsing or just display the string
+            license_status_msg = StringSubstr(expires, 0, 10);
+            Print("✅ License Verification: VALID (Expires: ", license_status_msg, ")");
+        }
+        else
+        {
+            is_license_valid = false;
+            license_status_msg = message;
+            Print("❌ License Verification: FAILED (", message, ")");
+        }
+    }
+    else
+    {
+        // Network error - be lenient? Or strict? 
+        // For security, usually strict, but for reliability, maybe allow if previously valid.
+        // Here we'll just log it. If it was valid before, we keep it valid for now until next check.
+        if(!is_license_valid)
+        {
+            license_status_msg = "Network Error " + IntegerToString(res);
+            Print("⚠️ License Check Failed: Network Error ", res);
+        }
+    }
+    
+    last_license_check = TimeCurrent();
+}
 //+------------------------------------------------------------------+
 //| Get volume of an active position                                 |
 //+------------------------------------------------------------------+

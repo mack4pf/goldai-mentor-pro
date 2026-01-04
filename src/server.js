@@ -6,6 +6,7 @@ require('dotenv').config();
 // Import dependencies
 const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
+const axios = require('axios');
 
 // Import our services
 const authService = require('./services/authService');
@@ -21,6 +22,7 @@ const openaiService = require('./services/openaiService');
 // Initialize Express app for health checks
 const app = express();
 const PORT = process.env.PORT || 3000;
+const BRIDGE_API_URL = process.env.BRIDGE_API_URL || 'https://goldai-bridge-is7d.onrender.com/api/v1';
 
 // Middleware
 app.use(express.json());
@@ -912,6 +914,36 @@ bot.onText(/\/admin create (.+)/, async (msg, match) => {
     return;
   }
 
+  // Check if it's the new unified licensing type
+  if (planType === 'test' || planType === 'regular') {
+    try {
+      const response = await axios.post(`${BRIDGE_API_URL}/license/generate`, { type: planType });
+
+      if (response.data && response.data.success) {
+        const key = response.data.licenseKey;
+        const expires = new Date(response.data.expiresAt).toLocaleDateString();
+
+        await bot.sendMessage(chatId,
+          `👑 **Unified License Created!**\n\n` +
+          `📋 Type: ${planType.toUpperCase()}\n` +
+          `🔑 Key: <code>${key}</code>\n` +
+          `📅 Expires: ${expires}\n\n` +
+          `**Instructions for User:**\n` +
+          `1. Telegram: Send <code>/start ${key}</code> to the bot.\n` +
+          `2. MT5 EA: Paste <code>${key}</code> into the <b>License_Key</b> input.`,
+          { parse_mode: 'HTML' }
+        );
+      } else {
+        await bot.sendMessage(chatId, '❌ Failed to generate key from Bridge');
+      }
+    } catch (error) {
+      console.error('License generation error:', error);
+      await bot.sendMessage(chatId, '❌ Error connecting to Bridge API');
+    }
+    return;
+  }
+
+  // Original authService logic for basic/premium (Legacy)
   const result = await authService.createUser(planType);
 
   if (result.success) {
