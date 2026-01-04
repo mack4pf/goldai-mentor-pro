@@ -19,6 +19,7 @@ input string   API_URL = "https://goldai-bridge-is7d.onrender.com/api/v1";  // B
 input int      Poll_Interval = 60;                                    // Poll Bridge every X seconds
 input int      Magic_Number = 112233;                                 // Magic Number
 input int      Max_Trades_Per_Day = 5;                               // Risk Control: Max trades/day
+input double   Max_Daily_Drawdown_Percent = 5.0;                      // Risk Control: Max daily loss %
 input double   TP1_Ratio = 0.40;                                      // TP1 target (40% of signal TP distance)
 input int      Safety_Close_Minutes = 120;                            // Move to BE after X minutes
 
@@ -36,6 +37,9 @@ CPositionInfo  pos;
 datetime       last_poll_time = 0;
 string         last_signal_id = "";
 string         current_signal_type = ""; // To track opposite signals
+int            trades_today = 0;
+datetime       last_trade_day = 0;
+double         starting_balance_today = 0;
 
 //+------------------------------------------------------------------+
 //| STRUCTURES                                                        |
@@ -59,8 +63,12 @@ struct SignalData
 int OnInit()
 {
     trade.SetExpertMagicNumber(Magic_Number);
+    starting_balance_today = AccountInfoDouble(ACCOUNT_BALANCE);
+    last_trade_day = iTime(_Symbol, PERIOD_D1, 0);
+    
     Print("🚀 GoldAI Master EA v1.0 Initialized");
     Print("Magic Number: ", Magic_Number);
+    Print("Starting Equity: ", starting_balance_today);
     return(INIT_SUCCEEDED);
 }
 
@@ -153,6 +161,16 @@ void ProcessSignal(string json)
 //+------------------------------------------------------------------+
 bool CanTrade(SignalData &sig)
 {
+    // 0. Reset daily stats if new day
+    datetime currentDay = iTime(_Symbol, PERIOD_D1, 0);
+    if(currentDay != last_trade_day)
+    {
+        trades_today = 0;
+        starting_balance_today = AccountInfoDouble(ACCOUNT_BALANCE);
+        last_trade_day = currentDay;
+        Print("🌅 New Day Started. Resetting daily stats.");
+    }
+
     // 1. Session Check (GMT)
     MqlDateTime gmt;
     TimeGMT(gmt);
@@ -170,6 +188,39 @@ bool CanTrade(SignalData &sig)
     if(CountOpenPositions() > 0)
     {
         Print("❌ Already have open positions. One signal at a time.");
+        return false;
+    }
+
+    // 3. Daily Trade Limit Check
+    if(trades_today >= Max_Trades_Per_Day)
+    {
+        Print("❌ Daily trade limit reached (", Max_Trades_Per_Day, ")");
+        return false;
+    }
+
+    // 4. Daily Drawdown Check
+    double currentEquity = AccountInfoDouble(ACCOUNT_EQUITY);
+    double dailyLoss = starting_balance_today - currentEquity;
+    double maxLossAmount = starting_balance_today * (Max_Daily_Drawdown_Percent / 100.0);
+    
+    if(dailyLoss >= maxLossAmount)
+    {
+        Print("❌ Daily drawdown limit reached (", Max_Daily_Drawdown_Percent, "%)");
+        return false;
+    }
+
+    // 5. Margin Check
+    double lotSize = CalculateTierLotSize();
+    double requiredMargin;
+    if(!OrderCalcMargin(sig.type == "BUY" ? ORDER_TYPE_BUY : ORDER_TYPE_SELL, _Symbol, lotSize * 2, SymbolInfoDouble(_Symbol, SYMBOL_ASK), requiredMargin))
+    {
+        Print("❌ Failed to calculate margin");
+        return false;
+    }
+    
+    if(requiredMargin > AccountInfoDouble(ACCOUNT_MARGIN_FREE))
+    {
+        Print("❌ Insufficient free margin for 2 positions");
         return false;
     }
 
@@ -230,7 +281,8 @@ void ExecuteSplitTrade(SignalData &sig)
         {
             last_signal_id = sig.id;
             current_signal_type = sig.type;
-            Print("✅ Successfully opened 2 split positions for Signal ", sig.id);
+            trades_today++;
+            Print("✅ Successfully opened 2 split positions for Signal ", sig.id, " (Trades today: ", trades_today, ")");
         }
     }
 }
@@ -302,6 +354,16 @@ void ManagePositions()
                 trade.PositionModify(t2_ticket, secureSL, t2_tp);
                 Print("🎯 Zone Protection: Moved T2 SL to 85% TP to lock runner profit");
             }
+        }
+    }
+
+    // Reset current_signal_type if no positions left
+    if(CountOpenPositions() == 0)
+    {
+        if(current_signal_type != "")
+        {
+            Print("🏁 All positions closed. Waiting for next signal.");
+            current_signal_type = "";
         }
     }
 }
