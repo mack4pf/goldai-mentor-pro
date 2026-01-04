@@ -16,7 +16,6 @@
 //| INPUT PARAMETERS                                                  |
 //+------------------------------------------------------------------+
 input string   API_URL = "https://goldai-bridge-is7d.onrender.com/api/v1";  // Bridge API URL
-input string   BRIDGE_TOKEN = "GOLDAI_FREE";                         // Bridge Token (Optional for now)
 input int      Poll_Interval = 60;                                    // Poll Bridge every X seconds
 input int      Magic_Number = 112233;                                 // Magic Number
 input int      Max_Trades_Per_Day = 5;                               // Risk Control: Max trades/day
@@ -95,7 +94,7 @@ void OnTick()
 void PollForSignal()
 {
     string url = API_URL + "/watchlist";
-    string headers = "x-bridge-token: " + BRIDGE_TOKEN + "\r\n";
+    string headers = "Content-Type: application/json\r\n";
     char postData[], result[];
     string resultHeaders;
 
