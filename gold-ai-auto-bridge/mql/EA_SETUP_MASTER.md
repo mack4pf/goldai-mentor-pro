@@ -35,7 +35,6 @@ When the settings window appears:
 
 **Inputs Tab:**
 - `API_URL`: `https://goldai-bridge-is7d.onrender.com/api/v1`
-- `BRIDGE_TOKEN`: The secret token shared between your Bridge and EA.
 - `Magic_Number`: Unique ID for this EA (e.g., `112233`).
 - `Poll_Interval`: Set to `60` for 1-minute polling.
 
