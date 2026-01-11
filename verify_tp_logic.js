@@ -2,59 +2,59 @@
 const openaiService = require('./src/services/openaiService');
 
 async function testTPCalculation() {
-    console.log("🚀 Testing Two-Step TP and BE Logic...");
+    console.log("🚀 Testing Four-Target TP, forced SL, and Market Watch Logic...");
 
-    // Mock analysis string with BUY signal
-    const mockAnalysisBuy = `
+    // Scenario 1: BUY Signal with VALID SL (20 pips) - Should PERSIST
+    const mockAnalysisBuyValid = `
 SIGNAL: BUY
-CONFIDENCE: 85%
-STRATEGY GRADE: A
 ENTRY: 2600.00
-STOP LOSS: 2590.00
-TAKE PROFIT 1: 2610.00
-TAKE PROFIT 2: 2620.00
-TECHNICAL RATIONALE: Support at 2600.
-LEVEL EXPLANATION: Fresh SNR.
-MARKET CONTEXT & FUNDAMENTALS: Clear sky.
-RISK MANAGEMENT: 1% risk.
-PROFESSIONAL RECOMMENDATION: Wait for rejection.
+STOP LOSS: 2598.00
+TAKE PROFIT 1: 2603.00
+TAKE PROFIT 2: 2605.00
+TAKE PROFIT 3: 2610.00
+TAKE PROFIT 4: 2615.00
+MARKET WATCH: Wait for M15 candle rejection.
 `;
 
-    // Mock analysis string with SELL signal and slight deviation in TP
-    const mockAnalysisSell = `
+    // Scenario 2: SELL Signal with INVALID SL (80 pips) - Should be OVERRIDDEN to 40 pips
+    const mockAnalysisSellInvalid = `
 SIGNAL: SELL
-CONFIDENCE: 80%
-STRATEGY GRADE: A
 ENTRY: 2600.00
-STOP LOSS: 2610.00
-TAKE PROFIT 1: 2592.00 (Slightly off)
-TAKE PROFIT 2: 2585.00 (Slightly off)
-TECHNICAL RATIONALE: Resistance at 2600.
-LEVEL EXPLANATION: Fresh SNR.
-MARKET CONTEXT & FUNDAMENTALS: Clear sky.
-RISK MANAGEMENT: 1% risk.
-PROFESSIONAL RECOMMENDATION: Wait for rejection.
+STOP LOSS: 2608.00
+TAKE PROFIT 1: 2597.00
+TAKE PROFIT 2: 2595.00
+TAKE PROFIT 3: 2590.00
+TAKE PROFIT 4: 2585.00
+MARKET WATCH: Watch for Hammer on H1.
 `;
 
     const marketData = { goldPrice: { price: 2600 } };
     const userContext = { balance: 1000, riskTier: 'standard' };
 
-    console.log("\nTesting BUY Signal (Expected: TP1=2610, TP2=2620, BE in Rec)");
-    const resultBuy = openaiService.parseProfessionalSignal(mockAnalysisBuy, marketData, '1h', userContext);
-    console.log("TP1:", resultBuy.takeProfit1, "(Expected 2610)");
-    console.log("TP2:", resultBuy.takeProfit2, "(Expected 2620)");
-    console.log("Recommendation Includes BE:", resultBuy.professionalRecommendation.includes("BE"));
+    console.log("\n--- Scenario 1: BUY (Valid 20 pip SL) ---");
+    const result1 = openaiService.parseProfessionalSignal(mockAnalysisBuyValid, marketData, '1h', userContext);
+    console.log("SL: ", result1.stopLoss, "(Expected 2598 - Persisted)");
+    console.log("TP1:", result1.takeProfit1, "(Expected 2603 - Forced)");
+    console.log("TP2:", result1.takeProfit2, "(Expected 2605 - Forced)");
+    console.log("TP3:", result1.takeProfit3, "(Expected 2610 - Forced)");
+    console.log("TP4:", result1.takeProfit4, "(Expected 2615 - Forced)");
 
-    console.log("\nTesting SELL Signal (Expected: TP1=2590, TP2=2580, BE in Rec)");
-    const resultSell = openaiService.parseProfessionalSignal(mockAnalysisSell, marketData, '1h', userContext);
-    console.log("TP1:", resultSell.takeProfit1, "(Expected 2590)");
-    console.log("TP2:", resultSell.takeProfit2, "(Expected 2580)");
-    console.log("Recommendation Includes BE:", resultSell.professionalRecommendation.includes("BE"));
+    console.log("\n--- Scenario 2: SELL (Invalid 80 pip SL) ---");
+    const result2 = openaiService.parseProfessionalSignal(mockAnalysisSellInvalid, marketData, '1h', userContext);
+    console.log("SL: ", result2.stopLoss, "(Expected 2604 - Overridden to 40 pips)");
+    console.log("TP1:", result2.takeProfit1, "(Expected 2597 - Forced)");
+    console.log("TP2:", result2.takeProfit2, "(Expected 2595 - Forced)");
+    console.log("TP3:", result2.takeProfit3, "(Expected 2590 - Forced)");
+    console.log("TP4:", result2.takeProfit4, "(Expected 2585 - Forced)");
 
-    if (resultBuy.takeProfit1 === 2610 && resultBuy.takeProfit2 === 2620 && resultSell.takeProfit1 === 2590 && resultSell.takeProfit2 === 2580) {
+    const success1 = result1.stopLoss === 2598 && result1.takeProfit1 === 2603 && result1.takeProfit2 === 2605 && result1.takeProfit3 === 2610 && result1.takeProfit4 === 2615;
+    const success2 = result2.stopLoss === 2604 && result2.takeProfit1 === 2597 && result2.takeProfit2 === 2595 && result2.takeProfit3 === 2590 && result2.takeProfit4 === 2585;
+
+    if (success1 && success2) {
         console.log("\n✅ ALL CALCULATIONS CORRECT!");
     } else {
         console.error("\n❌ CALCULATION ERROR DETECTED!");
+        process.exit(1);
     }
 }
 

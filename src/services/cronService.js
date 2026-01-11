@@ -126,13 +126,19 @@ class CronService {
                 `🎯 <b>TRADE SETUP:</b>\n` +
                 `📍 <b>Entry:</b> $${signal.entry}\n` +
                 `🛑 <b>Stop Loss:</b> $${signal.stopLoss}\n` +
-                `🏁 <b>Target (TP):</b> $${signal.takeProfit1}\n\n` +
+                `🏁 <b>TP 1 (30 pips):</b> $${signal.takeProfit1}\n` +
+                `🏁 <b>TP 2 (50 pips):</b> $${signal.takeProfit2}\n` +
+                `🏁 <b>TP 3 (100 pips):</b> $${signal.takeProfit3}\n` +
+                `🏁 <b>FINAL TP (150 pips):</b> $${signal.takeProfit4}\n\n` +
 
                 `👨‍🏫 <b>MENTOR ADVICE (Action Pattern):</b>\n` +
                 `${signal.professionalRecommendation}\n\n` +
 
                 `📈 <b>WHY THIS TRADE? (Storyline):</b>\n` +
                 `${signal.technicalAnalysis}\n\n` +
+
+                `👀 <b>MARKET WATCH:</b>\n` +
+                `${signal.marketWatch || 'Watch for candle rejection at entry zone.'}\n\n` +
 
                 `💡 <b>EXECUTION TIPS:</b>\n` +
                 `• Use <b>Line Chart</b> to find the Fresh Entry Point.\n` +
@@ -180,7 +186,9 @@ class CronService {
                 entry: signal.entry,
                 sl: signal.stopLoss,
                 tp: signal.takeProfit1,
-                tp2: signal.takeProfit2 || signal.takeProfit1, // Use TP2 if available
+                tp2: signal.takeProfit2,
+                tp3: signal.takeProfit3,
+                tp4: signal.takeProfit4,
                 timeframe: signal.timeframe || 'MASTER',
                 confidence: signal.confidence,
                 grade: signal.strategyGrade || 'A',

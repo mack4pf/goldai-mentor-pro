@@ -241,11 +241,19 @@ function formatSignalMessage(signal) {
     message += `🎯 <b>TRADE SETUP</b>\n`;
     message += `📍 <b>Entry:</b> ${signal.entry ? `$${signal.entry}` : 'N/A'}\n`;
     message += `🛑 <b>Stop Loss:</b> ${signal.stopLoss ? `$${signal.stopLoss}` : 'N/A'}\n`;
-    message += `🏁 <b>Target (TP):</b> ${signal.takeProfit1 ? `$${signal.takeProfit1}` : 'N/A'}\n\n`;
+    message += `🏁 <b>TP 1 (30 pips):</b> ${signal.takeProfit1 ? `$${signal.takeProfit1}` : 'N/A'}\n`;
+    message += `🏁 <b>TP 2 (50 pips):</b> ${signal.takeProfit2 ? `$${signal.takeProfit2}` : 'N/A'}\n`;
+    message += `🏁 <b>TP 3 (100 pips):</b> ${signal.takeProfit3 ? `$${signal.takeProfit3}` : 'N/A'}\n`;
+    message += `🏁 <b>FINAL TP (150 pips):</b> ${signal.takeProfit4 ? `$${signal.takeProfit4}` : 'N/A'}\n\n`;
 
     if (signal.levelExplanation) {
       message += `💡 <b>LEVEL ANALYSIS</b>\n`;
       message += `${signal.levelExplanation}\n\n`;
+    }
+
+    if (signal.marketWatch) {
+      message += `👀 <b>MARKET WATCH (Wait for this)</b>\n`;
+      message += `${signal.marketWatch}\n\n`;
     }
   }
 

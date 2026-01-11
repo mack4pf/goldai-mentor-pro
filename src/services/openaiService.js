@@ -262,58 +262,66 @@ class OpenAIService {
   // ----------------------------------------------------------------------
 
   getSystemPrompt() {
-    // CRITICAL UPDATE: Aggressively mandates BUY or SELL.
+    // CRITICAL UPDATE: Aggressively mandates BUY or SELL with tight SL and multi-TP logic.
     return `You are a professional Gold (XAU/USD) trading assistant integrated inside a Telegram signal bot.
 Your role is to act as the primary analyst. You must apply the user's defined trading strategy based on their chosen risk/balance tier.
-Your sole purpose is to analyze the PROVIDED market data and output a trading signal in the specified format, ensuring the signal matches the designated Strategy ID.
+
+---
+🎯 CORE TRADING PARAMETERS (STRICT ENFORCEMENT):
+- **STOP LOSS (SL)**: MUST be between 30 to 50 pips ($3.00 - $5.00 on XAUUSD). NEVER exceed 50 pips.
+- **TAKE PROFIT 1 (TP1)**: 30 pips ($3.00).
+- **TAKE PROFIT 2 (TP2)**: 50 pips ($5.00).
+- **TAKE PROFIT 3 (TP3)**: 100 pips ($10.00).
+- **FINAL TAKE PROFIT (TP4)**: 150 pips ($15.00).
+- **BREAK EVEN (BE)**: Instruct user to move SL to Entry (BE) once profit reaches 30 to 50 pips.
+
+---
+🏢 MARLISIINA STRATEGY RULES:
+1. **SL PLACEMENT**: Always place SL slightly below a valid Support or above a valid Resistance level.
+2. **CANDLE REJECTIONS**: When price enters the ENTRY zone, look for candle rejections like Hammers, Shooting Stars, or Bearish/Bullish Engulfing on Lower Timeframes (M5/M15).
+3. **ENTRY FILTERS**: "Sell at [Price], wait for a candle rejection (Hammer etc.) and sell in that region." This prevents panicking and provides better entries.
 
 ---
 🔑 Professional XAUUSD Gold Trading Prompt
-Trader Profile: 14+ Year Veteran successfully scaling accounts from $10 to $100,000. Focus on Risk Management and Adaptive Strategy Selection.
+Trader Profile: 14+ Year Veteran focusing on tight SL (30-50 pips) and multiple scaling targets.
 
 | Setup Grade | Confidence | Requirements | Position Sizing |
 |---|---|---|---|
-| **A+ (Perfect)** | 85-95% | HTF Storyline (WRW/MRM) + Fresh SnR + 3+ Confluence factors + London/NY Session. | Normal (1-2%) |
-| **A (Excellent)**| 75-84% | DRD Storyline + 2+ Confluence factors + Any Engulfing type + ≥70% Fresh SnR. | Normal (1-2%) |
-| **B+ (Good)** | 65-74% | DRD Storyline + 1-2 Confluence factors + Engulfing Zone + Mixed Freshness. | Reduced (0.5-1%) |
-| **B/C (Avoid)** | < 65% | Weak Storyline (Broken) + No Confluence + Unfresh levels. Output **HOLD**. | No Trade |
+| **A+ (Perfect)** | 85-95% | HTF Storyline + Fresh SnR + Candle Rejection at Entry + NY/London Session. | Normal (1-2%) |
+| **A (Excellent)**| 75-84% | DRD Storyline + 2+ Confluence factors + Engulfing Zone. | Normal (1-2%) |
+| **B+ (Good)** | 65-74% | Standard SnR bounce with rejection. | Reduced (0.5-1%) |
+| **B/C (Avoid)** | < 65% | Weak Storyline. Output **HOLD**. | No Trade |
 
 ---
 🔒 🇲🇾 MALAYSIAN SnR SYSTEM RULES:
-1. **LINE CHART FOCUS**: You MUST analyze price using **Body Connections**. SnR levels are formed at the connection of a Candle Close and the next Open. Ignore wicks for level creation; use wicks ONLY to detect rejections.
-2. **FRESHNESS IS LIQUIDITY**: A level is **FRESH** only if it has NEVER been touched by a candle wick. If a wick has touched it, it is **UNFRESH** (Weak). If a body closes past it, it is **BROKEN**.
-3. **THE STORYLINE**:
-   - **Monthly → Monthly (MRM)**: Price rejected Monthly SnR, heading to the next.
-   - **Weekly → Weekly (WRW)**: Primary trend narrative.
-   - **Daily → Daily (DRD)**: Standard day trading narrative.
-4. **ENGULFING ZONES**:
-   - **Perfect**: Body engulfs previous body.
-   - **QM (Quarterly/Monthly)**: Engulfing zone containing a psychological level ($2000, $2100).
-   - **Hidden**: HTF Gap (Close ≠ Open) aligned with an LTF Engulf.
-5. **THE "X" CONFLUENCE**: The strongest entries happen at the intersection of a **Fresh SnR**, a **Body-to-Body Trendline**, and an **Engulfing Zone**.
+1. **LINE CHART FOCUS**: Analyze price using **Body Connections**. SnR levels are formed at Candle Close/Open connections.
+2. **FRESHNESS**: Level is FRESH only if never touched by a wick.
+3. **STORYLINE**: Monthly (MRM) -> Weekly (WRW) -> Daily (DRD).
 
 🎯 Decision Logic:
-- **ALWAYS** check the "Storyline" first. If the Weekly storyline is Bullish, do not Sell unless price hits a major Monthly Roadblock.
-- **MENTOR TIP**: Explain the "Shape" (A-Shape for Resistance, V-Shape for Support) and why the level is Fresh using Line Chart logic.
-- If a setup is **A+**, output **STRONG_BUY/SELL**. If it is **B or lower**, output **HOLD**.
+- **ALWAYS** check the "Storyline" first.
+- **MENTOR TIP**: Explain the "Shape" and why it's a valid region. Use phrases like "Wait for rejection" or "Sell in this region".
 
-💬 Message Format (REQUIRED LABELS):
+💬 Message Format (REQUIRED):
 SIGNAL: [STRONG_BUY|BUY|HOLD|SELL|STRONG_SELL]
 CONFIDENCE: [0-100]%
 STRATEGY GRADE: [A+|A|B+|B|C]
 ENTRY: [Price]
-STOP LOSS: [Price]
-TAKE PROFIT 1: [Price] (MUST BE 1:1 Risk/Reward - same distance as SL)
-TAKE PROFIT 2: [Price] (MUST BE 1:2 Risk/Reward - double the distance of SL)
-TECHNICAL RATIONALE: [Explain the Line Chart SnR/Confluence]
-LEVEL EXPLANATION: [Explain why this is an A+/A Grade setup]
-MARKET CONTEXT & FUNDAMENTALS: [News impact]
-RISK MANAGEMENT: [Lot size guidance]
-PROFESSIONAL RECOMMENDATION: [Step-by-step entry trigger. MANDATORY: Include "Move SL to Entry (BE) once TP1 is hit"]
+STOP LOSS: [Price] (30-50 pips distance)
+TAKE PROFIT 1: [Price] (30 pips move)
+TAKE PROFIT 2: [Price] (50 pips move)
+TAKE PROFIT 3: [Price] (100 pips move)
+FINAL TP (TP4): [Price] (150 pips move)
+TECHNICAL RATIONALE: [Explain the HTF Storyline and why the level is Fresh]
+LEVEL EXPLANATION: [Explain why SL is placed where it is - below support/above resistance]
+MARKET WATCH: [What to watch for on lower timeframes - e.g. M15/H1 candle rejections/Hammers]
+PROFESSIONAL RECOMMENDATION: [Instruction for entry: "Wait for candle rejection... sell in that region". Mandatory: BE instruction at 30-50 pips profit.]
 
 ---
-Act exactly according to this prompt. Your response must be professional, educational, and provide real-time analytical insight from the PROVIDED DATA.`;
+Act exactly according to this prompt. Your response must be educational and prevent user panic by explaining what to watch for.`;
   }
+
+
 
   // ----------------------------------------------------------------------
   // 4. ORCHESTRATION & VALIDATION HELPERS (MOVED FROM AnalysisService)
@@ -423,10 +431,10 @@ Act exactly according to this prompt. Your response must be professional, educat
 
     const userInfo = userContext ? `
     USER PROFILE: - Account Balance: $${userContext.balance || 'N/A'} - Risk Tier: ${userContext.riskTier || 'Standard'} - Experience: ${userContext.experience || 'Not specified'}
-    - **SELECTED BALANCE TIER:** ${balanceCategory} - **APPLY STRATEGY ID:** ${strategyID}` : 'USER PROFILE: General analysis (No user context provided). APPLY STRATEGY ID: MR/CT (1k-10k)';
+    - ** SELECTED BALANCE TIER:** ${balanceCategory} - ** APPLY STRATEGY ID:** ${strategyID} ` : 'USER PROFILE: General analysis (No user context provided). APPLY STRATEGY ID: MR/CT (1k-10k)';
 
     const validationInfo = preValidation ? `
-    PRE-VALIDATION RESULTS (From User's Code): - Overall Score: ${preValidation.confirmationScore?.toFixed(1) || 'N/A'}/10 - Should Proceed: ${preValidation.shouldProceed ? 'YES' : 'NO'} - Primary Reason: ${preValidation.reason}` : 'PRE-VALIDATION: Not available';
+PRE - VALIDATION RESULTS(From User's Code): - Overall Score: ${preValidation.confirmationScore?.toFixed(1) || 'N / A'}/10 - Should Proceed: ${preValidation.shouldProceed ? 'YES' : 'NO'} - Primary Reason: ${preValidation.reason}` : 'PRE - VALIDATION: Not available';
 
     return `
     Analyze the following market data for the ${timeframes[timeframe] || timeframe} timeframe.
@@ -477,6 +485,8 @@ Act exactly according to this prompt. Your response must be professional, educat
     const slMatch = analysis.match(/(?:Stop Loss|SL):\s*\$?([\d.]+)/i);
     const tp1Match = analysis.match(/(?:Take Profit 1|TP1):\s*\$?([\d.]+)/i);
     const tp2Match = analysis.match(/(?:Take Profit 2|TP2):\s*\$?([\d.]+)/i);
+    const tp3Match = analysis.match(/(?:Take Profit 3|TP3):\s*\$?([\d.]+)/i);
+    const tp4Match = analysis.match(/(?:Take Profit 4|FINAL TP|TP4):\s*\$?([\d.]+)/i);
 
     let signal = signalMatch ? signalMatch[1].toUpperCase() : 'HOLD'; // SAFETY: Default to HOLD if parse fails
 
@@ -487,13 +497,16 @@ Act exactly according to this prompt. Your response must be professional, educat
     let stopLoss = slMatch ? parseFloat(slMatch[1]) : 0;
     let takeProfit1 = tp1Match ? parseFloat(tp1Match[1]) : 0;
     let takeProfit2 = tp2Match ? parseFloat(tp2Match[1]) : 0;
+    let takeProfit3 = tp3Match ? parseFloat(tp3Match[1]) : 0;
+    let takeProfit4 = tp4Match ? parseFloat(tp4Match[1]) : 0;
 
     const strategyGradeMatch = analysis.match(/STRATEGY GRADE:\s*([A-C\+]+)/i);
     const strategyGrade = strategyGradeMatch ? strategyGradeMatch[1].toUpperCase() : 'N/A';
 
     const technicalAnalysis = this.extractSection(analysis, "TECHNICAL RATIONALE:", "LEVEL EXPLANATION:") || "AI analysis provided below.";
-    const levelExplanation = this.extractSection(analysis, "LEVEL EXPLANATION:", "MARKET CONTEXT & FUNDAMENTALS:");
-    const riskManagement = this.extractSection(analysis, "RISK MANAGEMENT:", "PROFESSIONAL RECOMMENDATION:") || `Risk/Reward: ${this.calculateRiskRewardRatio(entry, stopLoss, takeProfit1).ratio}`;
+    const levelExplanation = this.extractSection(analysis, "LEVEL EXPLANATION:", "MARKET WATCH:");
+    const marketWatch = this.extractSection(analysis, "MARKET WATCH:", "TECHNICAL RATIONALE:") || this.extractSection(analysis, "MARKET WATCH:", "PROFESSIONAL RECOMMENDATION:");
+    const riskManagement = this.extractSection(analysis, "RISK MANAGEMENT:", "PROFESSIONAL RECOMMENDATION:") || `Risk/Reward: High RR Setup`;
     const marketContext = this.extractSection(analysis, "MARKET CONTEXT & FUNDAMENTALS:", "RISK MANAGEMENT:");
     const professionalRecommendation = this.extractSection(analysis, "PROFESSIONAL RECOMMENDATION:", "---") || "Trade with caution.";
 
@@ -503,17 +516,22 @@ Act exactly according to this prompt. Your response must be professional, educat
       throw new Error("AI issued signal but could not determine entry price from market data.");
     }
 
-    // FORCE RE-CALCULATION of TP1 and TP2 to ensure strict 1:1 and 1:2 R/R
-    // even if the AI slightly deviates in its output.
-    if (signal !== 'HOLD' && stopLoss !== 0) {
-      const risk = Math.abs(entry - stopLoss);
-      if (signal.includes('BUY')) {
-        takeProfit1 = entry + risk;
-        takeProfit2 = entry + (risk * 2);
-      } else if (signal.includes('SELL')) {
-        takeProfit1 = entry - risk;
-        takeProfit2 = entry - (risk * 2);
+    // FORCE RE-CALCULATION of TP levels to ensure user's strict requests
+    if (signal !== 'HOLD') {
+      const isBuy = signal.includes('BUY');
+
+      // Calculate missing or incorrect levels (assuming 1 pip = 0.10 on XAUUSD)
+      const pipMultiplier = 0.10;
+
+      if (stopLoss === 0 || Math.abs(entry - stopLoss) > (50 * pipMultiplier)) {
+        stopLoss = isBuy ? entry - (40 * pipMultiplier) : entry + (40 * pipMultiplier);
       }
+
+      // Always set strict TP levels
+      takeProfit1 = isBuy ? entry + (30 * pipMultiplier) : entry - (30 * pipMultiplier);
+      takeProfit2 = isBuy ? entry + (50 * pipMultiplier) : entry - (50 * pipMultiplier);
+      takeProfit3 = isBuy ? entry + (100 * pipMultiplier) : entry - (100 * pipMultiplier);
+      takeProfit4 = isBuy ? entry + (150 * pipMultiplier) : entry - (150 * pipMultiplier);
     }
 
     // Fallback for missing SL/TP
@@ -536,11 +554,14 @@ Act exactly according to this prompt. Your response must be professional, educat
 
     return {
       signal: signal, confidence: confidence, timeframe: timeframe, entry: entry, stopLoss: stopLoss,
-      takeProfit1: takeProfit1, takeProfit2: takeProfit2, strategyGrade: strategyGrade, technicalAnalysis: technicalAnalysis.trim() || "AI analysis provided in recommendation.",
-      levelExplanation: levelExplanation.trim() || "Levels calculated based on volatility.", marketContext: marketContext.trim() || "N/A",
+      takeProfit1: takeProfit1, takeProfit2: takeProfit2, takeProfit3: takeProfit3, takeProfit4: takeProfit4,
+      strategyGrade: strategyGrade, technicalAnalysis: technicalAnalysis.trim() || "AI analysis provided in recommendation.",
+      levelExplanation: levelExplanation.trim() || "SL placed below/above regional structure.",
+      marketWatch: marketWatch.trim() || "Watch for H1/M15 candle rejections in the entry zone.",
+      marketContext: marketContext.trim() || "N/A",
       riskManagement: finalRiskManagement, professionalRecommendation: updatedRecommendation,
       positionSizing: positionSizing, fullAnalysis: analysis, timestamp: new Date().toISOString(), source: source,
-      userContext: userContext, riskRewardRatio: "1:1 / 1:2"
+      userContext: userContext, riskRewardRatio: "Multi-TP / Scaling"
     };
   }
 
