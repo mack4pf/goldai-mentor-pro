@@ -312,13 +312,13 @@ TAKE PROFIT 1: [Price] (30 pips move)
 TAKE PROFIT 2: [Price] (50 pips move)
 TAKE PROFIT 3: [Price] (100 pips move)
 FINAL TP (TP4): [Price] (150 pips move)
-TECHNICAL RATIONALE: [Explain the HTF Storyline and why the level is Fresh]
-LEVEL EXPLANATION: [Explain why SL is placed where it is - below support/above resistance]
-MARKET WATCH: [What to watch for on lower timeframes - e.g. M15/H1 candle rejections/Hammers]
-PROFESSIONAL RECOMMENDATION: [Instruction for entry: "Wait for candle rejection... sell in that region". Mandatory: BE instruction at 30-50 pips profit.]
+TECHNICAL RATIONALE: [Concise 1-2 sentence explanation of the SnR level and Storyline]
+LEVEL EXPLANATION: [Briefly explain SL placement relative to resistance/support]
+MARKET WATCH: [Specific 1-sentence lower timeframe trigger to watch for]
+PROFESSIONAL RECOMMENDATION: [Clear 1-sentence entry instruction + BE rule]
 
 ---
-Act exactly according to this prompt. Your response must be educational and prevent user panic by explaining what to watch for.`;
+Act exactly according to this prompt. Be extremely concise. Your response must be educational but brief enough for Telegram (Max 150 words total).`;
   }
 
 

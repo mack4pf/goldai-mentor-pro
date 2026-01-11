@@ -241,39 +241,29 @@ function formatSignalMessage(signal) {
     message += `🎯 <b>TRADE SETUP</b>\n`;
     message += `📍 <b>Entry:</b> ${signal.entry ? `$${signal.entry}` : 'N/A'}\n`;
     message += `🛑 <b>Stop Loss:</b> ${signal.stopLoss ? `$${signal.stopLoss}` : 'N/A'}\n`;
-    message += `🏁 <b>TP 1 (30 pips):</b> ${signal.takeProfit1 ? `$${signal.takeProfit1}` : 'N/A'}\n`;
-    message += `🏁 <b>TP 2 (50 pips):</b> ${signal.takeProfit2 ? `$${signal.takeProfit2}` : 'N/A'}\n`;
-    message += `🏁 <b>TP 3 (100 pips):</b> ${signal.takeProfit3 ? `$${signal.takeProfit3}` : 'N/A'}\n`;
-    message += `🏁 <b>FINAL TP (150 pips):</b> ${signal.takeProfit4 ? `$${signal.takeProfit4}` : 'N/A'}\n\n`;
-
-    if (signal.levelExplanation) {
-      message += `💡 <b>LEVEL ANALYSIS</b>\n`;
-      message += `${signal.levelExplanation}\n\n`;
-    }
+    message += `🏁 <b>TP 1:</b> ${signal.takeProfit1 ? `$${signal.takeProfit1}` : 'N/A'}\n`;
+    message += `🏁 <b>TP 2:</b> ${signal.takeProfit2 ? `$${signal.takeProfit2}` : 'N/A'}\n`;
+    message += `🏁 <b>TP 3:</b> ${signal.takeProfit3 ? `$${signal.takeProfit3}` : 'N/A'}\n`;
+    message += `🏁 <b>FINAL TP:</b> ${signal.takeProfit4 ? `$${signal.takeProfit4}` : 'N/A'}\n\n`;
 
     if (signal.marketWatch) {
       message += `👀 <b>MARKET WATCH (Wait for this)</b>\n`;
       message += `${signal.marketWatch}\n\n`;
     }
+
+    message += `📈 <b>TECHNICAL RATIONALE</b>\n`;
+    message += `${signal.technicalAnalysis || signal.levelExplanation || 'Analyzed via Malaysian SnR'}\n\n`;
+
+    if (signal.professionalRecommendation) {
+      message += `👨‍🏫 <b>MENTOR TIP</b>\n`;
+      message += `${signal.professionalRecommendation}\n\n`;
+    }
+  } else {
+    message += `💡 <b>HOLD ANALYSIS</b>\n`;
+    message += `${signal.technicalAnalysis || 'Market is currently unclear. Staying neutral.'}\n\n`;
   }
 
-  message += `📈 <b>TECHNICAL RATIONALE</b>\n`;
-  message += `${signal.technicalAnalysis}\n\n`;
-
-  if (signal.marketContext) {
-    message += `🌍 <b>MARKET CONTEXT</b>\n`;
-    message += `${signal.marketContext}\n\n`;
-  }
-
-  message += `⚖️ <b>RISK MANAGEMENT</b>\n`;
-  message += `${signal.riskManagement}\n\n`;
-
-  if (signal.professionalRecommendation) {
-    message += `👨‍🏫 <b>MENTOR'S EXECUTION TIP</b>\n`;
-    message += `${signal.professionalRecommendation}\n\n`;
-  }
-
-  message += `⚠️ <i>Trade responsibly. Verified by GoldAI Mentor Pro Core.</i>\n`;
+  message += `⚠️ <i>Trade responsibly. Verified by GoldAI Core.</i>\n`;
   message += `⏰ ${new Date(signal.timestamp).toLocaleString()}`;
 
   return message;

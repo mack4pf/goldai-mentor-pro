@@ -115,38 +115,30 @@ class CronService {
 
             const signalEmoji = signal.signal.includes('BUY') ? '🔵 BUY' : '🟠 SELL';
 
-            const message = `🚀 <b>NEW PRO SETUP: ${signalEmoji} Gold</b>\n` +
+            const message = `🚀 <b>NEW SETUP: Gold (${signal.signal})</b>\n` +
                 `━━━━━━━━━━━━━━━━━━━━━━\n` +
-                `🏆 <b>SETUP GRADE:</b> ${signal.strategyGrade || 'A'}\n` +
-                `⏰ <b>TIMEFRAME:</b> ${config.timeframe.toUpperCase()}\n` +
-                `📊 <b>CONFIDENCE:</b> ${signal.confidence}%\n` +
-                `💰 <b>LOT SIZE:</b> <b>${signal.positionSizing?.lots || '0.01'}</b>\n` +
+                `🏆 <b>GRADE:</b> ${signal.strategyGrade || 'A'}\n` +
+                `⏰ <b>TF:</b> ${config.timeframe.toUpperCase()} | 📊 <b>CONF:</b> ${signal.confidence}%\n` +
                 `━━━━━━━━━━━━━━━━━━━━━━\n\n` +
 
-                `🎯 <b>TRADE SETUP:</b>\n` +
+                `🎯 <b>LEVELS:</b>\n` +
                 `📍 <b>Entry:</b> $${signal.entry}\n` +
-                `🛑 <b>Stop Loss:</b> $${signal.stopLoss}\n` +
-                `🏁 <b>TP 1 (30 pips):</b> $${signal.takeProfit1}\n` +
-                `🏁 <b>TP 2 (50 pips):</b> $${signal.takeProfit2}\n` +
-                `🏁 <b>TP 3 (100 pips):</b> $${signal.takeProfit3}\n` +
-                `🏁 <b>FINAL TP (150 pips):</b> $${signal.takeProfit4}\n\n` +
+                `🛑 <b>Stop:</b> $${signal.stopLoss}\n` +
+                `🏁 <b>TP1:</b> $${signal.takeProfit1}\n` +
+                `🏁 <b>TP2:</b> $${signal.takeProfit2}\n` +
+                `🏁 <b>TP3:</b> $${signal.takeProfit3}\n` +
+                `🏁 <b>FINAL:</b> $${signal.takeProfit4}\n\n` +
 
-                `👨‍🏫 <b>MENTOR ADVICE (Action Pattern):</b>\n` +
-                `${signal.professionalRecommendation}\n\n` +
-
-                `📈 <b>WHY THIS TRADE? (Storyline):</b>\n` +
+                `📈 <b>ANALYSIS:</b>\n` +
                 `${signal.technicalAnalysis}\n\n` +
 
                 `👀 <b>MARKET WATCH:</b>\n` +
-                `${signal.marketWatch || 'Watch for candle rejection at entry zone.'}\n\n` +
+                `${signal.marketWatch}\n\n` +
 
-                `💡 <b>EXECUTION TIPS:</b>\n` +
-                `• Use <b>Line Chart</b> to find the Fresh Entry Point.\n` +
-                `• Wait for a <b>rejection wick</b> on the candle close before entering.\n\n` +
+                `👨‍🏫 <b>MENTOR TIP:</b>\n` +
+                `${signal.professionalRecommendation}\n\n` +
 
-                `⚠️ <b>RISK NOTE:</b>\n` +
-                `• Maintain strict ${signal.positionSizing?.lots || '0.01'} lots. Protect your equity.\n\n` +
-                `✅ <i>Signal verified by GoldAI Mentor Pro Core.</i>`;
+                `✅ <i>Verified by GoldAI Core</i>`;
 
             let successCount = 0;
             for (const user of activeUsers) {
