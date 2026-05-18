@@ -2,7 +2,7 @@ const cron = require('node-cron');
 const openaiService = require('./openaiService');
 const databaseService = require('./databaseService');
 const axios = require('axios');
-hconst globalMt5WebhookService = require('./globalMt5WebhookService');
+const globalMt5WebhookService = require('./globalMt5WebhookService');
 
 class CronService {
     constructor() {
