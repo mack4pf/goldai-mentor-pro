@@ -51,22 +51,47 @@ class GlobalMt5WebhookService {
   }
 
   async dispatchIfEligible(signal, source = 'unknown') {
+    const confidence = Number(signal?.confidence || 0);
+    const signalType = (signal?.signal || '').toString().toUpperCase();
+
+    console.log(`\n📊 MT5 WEBHOOK CHECK (${source}):`, {
+      symbol: signal?.symbol || 'XAUUSD',
+      signal: signalType,
+      confidence: `${confidence}%`,
+      minRequired: `${this.minConfidence}%`,
+      eligible: this.isEligible(signal)
+    });
+
     if (!this.isEligible(signal)) {
+      const reason = confidence < this.minConfidence ? `confidence ${confidence}% < ${this.minConfidence}%` : 
+                     (signalType === 'HOLD' || signalType === 'ERROR') ? `signal type is ${signalType}` :
+                     !signalType.includes('BUY') && !signalType.includes('SELL') ? `invalid signal type: ${signalType}` :
+                     'unknown reason';
+      console.log(`   ⏭️  SKIPPED: ${reason}`);
       return {
         sent: false,
-        reason: 'Signal not eligible for global MT5 webhook.'
+        reason: `Signal not eligible: ${reason}`
       };
     }
 
     const payload = this.buildPayload(signal);
 
+    console.log(`   ✅ ELIGIBLE - Building webhook payload:`, JSON.stringify(payload, null, 2));
+
     try {
+      console.log(`   📤 Sending to: ${this.webhookUrl}`);
       const response = await axios.post(this.webhookUrl, payload, {
         headers: { 'Content-Type': 'application/json' },
         timeout: 15000
       });
 
-      console.log(`🌐 MT5 GLOBAL WEBHOOK SENT (${source}) -> ${payload.action.toUpperCase()} ${payload.symbol} @ ${signal.confidence}%`);
+      console.log(`\n✅✅✅ MT5 GLOBAL WEBHOOK DELIVERED (${source}) ✅✅✅`);
+      console.log(`   🟢 Status: ${response.status}`);
+      console.log(`   🎯 Action: ${payload.action.toUpperCase()} ${payload.symbol}`);
+      console.log(`   💰 Volume: ${payload.volume}`);
+      console.log(`   📍 Entry: ${payload.stopLoss ? `SL=${payload.stopLoss}` : 'N/A'} | TP=${payload.takeProfit || 'N/A'}`);
+      console.log(`   🤖 Strategy: ${payload.strategy}`);
+      console.log(`   📈 Confidence: ${confidence}%\n`);
 
       return {
         sent: true,
@@ -76,7 +101,13 @@ class GlobalMt5WebhookService {
     } catch (error) {
       const status = error.response?.status || 'NO_RESPONSE';
       const message = error.response?.data || error.message;
-      console.error(`❌ MT5 GLOBAL WEBHOOK FAILED (${source}) [${status}]:`, message);
+      
+      console.log(`\n❌❌❌ MT5 GLOBAL WEBHOOK FAILED (${source}) ❌❌❌`);
+      console.log(`   🔴 Status: ${status}`);
+      console.log(`   ⚠️  Error: ${message}`);
+      console.log(`   📤 Attempted URL: ${this.webhookUrl}`);
+      console.log(`   📦 Payload was:`, JSON.stringify(payload, null, 2));
+      console.log(`   💡 Check if webhook endpoint is online\n`);
 
       return {
         sent: false,
