@@ -8,6 +8,89 @@ class CronService {
     constructor() {
         this.isJobRunning = false;
         this.bot = null; // Will be injected from server.js
+        this.minHourlyConfidence = Number(process.env.HOURLY_MIN_CONFIDENCE || 82);
+        this.minHourlyRr = Number(process.env.HOURLY_MIN_RR || 1.8);
+        this.minSlPips = Number(process.env.HOURLY_MIN_SL_PIPS || 30);
+        this.maxSlPips = Number(process.env.HOURLY_MAX_SL_PIPS || 80);
+        this.allowedGrades = (process.env.HOURLY_ALLOWED_GRADES || 'A+,A').split(',').map(v => v.trim().toUpperCase()).filter(Boolean);
+        this.restrictToMainSessions = String(process.env.HOURLY_RESTRICT_SESSIONS || 'true').toLowerCase() === 'true';
+    }
+
+    isMainTradingSession() {
+        const utcHour = new Date().getUTCHours();
+        // London + New York overlap/active windows for XAUUSD.
+        return (utcHour >= 7 && utcHour <= 10) || (utcHour >= 12 && utcHour <= 16);
+    }
+
+    hasHighImpactNewsContext(signal) {
+        const context = `${signal?.marketContext || ''} ${signal?.marketWatch || ''} ${signal?.technicalAnalysis || ''}`.toLowerCase();
+        const blockers = ['cpi', 'nfp', 'fomc', 'powell', 'rate decision', 'interest rate', 'federal reserve'];
+        return blockers.some(keyword => context.includes(keyword));
+    }
+
+    calculateRiskReward(entry, stopLoss, takeProfit1) {
+        const risk = Math.abs(Number(entry) - Number(stopLoss));
+        const reward = Math.abs(Number(takeProfit1) - Number(entry));
+        if (!Number.isFinite(risk) || !Number.isFinite(reward) || risk <= 0) {
+            return 0;
+        }
+        return reward / risk;
+    }
+
+    toPips(priceDistance) {
+        // Gold convention in this project: 1 pip ~= 0.10 price move.
+        return Number(priceDistance) / 0.10;
+    }
+
+    evaluateHourlyTradeReadiness(signal) {
+        const reasons = [];
+
+        if (!signal || signal.signal === 'HOLD') {
+            reasons.push('hold_or_missing_signal');
+            return { shouldTrade: false, reasons, metrics: {} };
+        }
+
+        const signalType = String(signal.signal || '').toUpperCase();
+        const confidence = Number(signal.confidence || 0);
+        const grade = String(signal.strategyGrade || 'N/A').toUpperCase();
+        const entry = Number(signal.entry);
+        const stopLoss = Number(signal.stopLoss);
+        const takeProfit1 = Number(signal.takeProfit1);
+        const rr = this.calculateRiskReward(entry, stopLoss, takeProfit1);
+        const slPips = this.toPips(Math.abs(entry - stopLoss));
+
+        if (!signalType.includes('BUY') && !signalType.includes('SELL')) {
+            reasons.push('invalid_signal_type');
+        }
+        if (confidence < this.minHourlyConfidence) {
+            reasons.push(`confidence_below_${this.minHourlyConfidence}`);
+        }
+        if (!this.allowedGrades.includes(grade)) {
+            reasons.push(`grade_not_allowed_${grade}`);
+        }
+        if (!Number.isFinite(slPips) || slPips < this.minSlPips || slPips > this.maxSlPips) {
+            reasons.push(`sl_pips_out_of_range_${slPips.toFixed(1)}`);
+        }
+        if (!Number.isFinite(rr) || rr < this.minHourlyRr) {
+            reasons.push(`rr_below_${this.minHourlyRr.toFixed(2)}`);
+        }
+        if (this.restrictToMainSessions && !this.isMainTradingSession()) {
+            reasons.push('outside_main_trading_session');
+        }
+        if (this.hasHighImpactNewsContext(signal)) {
+            reasons.push('high_impact_news_context');
+        }
+
+        return {
+            shouldTrade: reasons.length === 0,
+            reasons,
+            metrics: {
+                confidence,
+                grade,
+                rr: Number.isFinite(rr) ? rr.toFixed(2) : 'N/A',
+                slPips: Number.isFinite(slPips) ? slPips.toFixed(1) : 'N/A'
+            }
+        };
     }
 
     setBotInstance(botInstance) {
@@ -53,8 +136,10 @@ class CronService {
 
             // The AI will receive the current market context and analyzed MTF data
             const masterSignal = await openaiService.generateMasterHourlySignal(['W1', 'D1', 'H4', 'H1', 'M15']);
+            const readiness = this.evaluateHourlyTradeReadiness(masterSignal);
+            console.log(`   🧪 HOURLY QUALITY GATE:`, readiness.metrics);
 
-            if (masterSignal && masterSignal.signal !== 'HOLD' && masterSignal.confidence >= 70) {
+            if (readiness.shouldTrade) {
                 // FOUND A GOOD SETUP
                 const signalDoc = {
                     ...masterSignal,
@@ -76,7 +161,7 @@ class CronService {
                 await globalMt5WebhookService.dispatchIfEligible(masterSignal, 'cron_master_hourly');
             } else {
                 // NO CLEAR SETUP
-                console.log('   🤫 NO CLEAR SETUP FOUND across timeframes. Sending update...');
+                console.log(`   🤫 HOURLY SETUP BLOCKED: ${readiness.reasons.join(', ')}`);
                 await this.broadcastNoSetupUpdate();
             }
 
