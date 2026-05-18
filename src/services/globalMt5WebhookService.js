@@ -29,6 +29,10 @@ class GlobalMt5WebhookService {
     const signalType = (signal.signal || '').toString().toUpperCase();
     const action = signalType.includes('BUY') ? 'buy' : 'sell';
 
+    const entry = Number(signal.entry ?? signal.entryPrice);
+    const sl = Number(signal.sl ?? signal.stopLoss);
+    const tp1 = Number(signal.tp1 ?? signal.takeProfit1);
+
     const payload = {
       symbol: signal.symbol || 'XAUUSD',
       action,
@@ -36,15 +40,22 @@ class GlobalMt5WebhookService {
       strategy: this.strategyName
     };
 
-    const stopLoss = Number(signal.stopLoss);
-    const takeProfit = Number(signal.takeProfit1);
-
-    if (Number.isFinite(stopLoss) && stopLoss > 0) {
-      payload.stopLoss = stopLoss;
+    if (Number.isFinite(entry) && entry > 0) {
+      payload.entry = entry;
     }
 
-    if (Number.isFinite(takeProfit) && takeProfit > 0) {
-      payload.takeProfit = takeProfit;
+    if (Number.isFinite(sl) && sl > 0) {
+      // MT5 backend preferred field for SL.
+      payload.sl = sl;
+      // Backward compatibility for older webhook handlers.
+      payload.stopLoss = sl;
+    }
+
+    if (Number.isFinite(tp1) && tp1 > 0) {
+      // MT5 backend preferred field for TP1.
+      payload.tp1 = tp1;
+      // Backward compatibility for older webhook handlers.
+      payload.takeProfit = tp1;
     }
 
     return payload;
@@ -89,7 +100,7 @@ class GlobalMt5WebhookService {
       console.log(`   🟢 Status: ${response.status}`);
       console.log(`   🎯 Action: ${payload.action.toUpperCase()} ${payload.symbol}`);
       console.log(`   💰 Volume: ${payload.volume}`);
-      console.log(`   📍 Entry: ${payload.stopLoss ? `SL=${payload.stopLoss}` : 'N/A'} | TP=${payload.takeProfit || 'N/A'}`);
+      console.log(`   📍 Entry: ${payload.entry || 'MARKET'} | SL=${payload.sl || payload.stopLoss || 'N/A'} | TP1=${payload.tp1 || payload.takeProfit || 'N/A'}`);
       console.log(`   🤖 Strategy: ${payload.strategy}`);
       console.log(`   📈 Confidence: ${confidence}%\n`);
 
