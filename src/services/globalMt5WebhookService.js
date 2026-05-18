@@ -2,7 +2,7 @@ const axios = require('axios');
 
 class GlobalMt5WebhookService {
   constructor() {
-    this.webhookUrl = process.env.GLOBAL_MT5_WEBHOOK_URL || 'https://nojai-backend.onrender.com/api/mt5-webhook/global/nojai_global_mt5_xK9mPqR2vLwT8nJcYdZbFs';
+    this.webhookUrl = process.env.GLOBAL_MT5_WEBHOOK_URL || 'https://nojai-backend.onrender.com/api/mt5-webhook/global/nojai_mt5_xauusd_cc0c64afea2c7ca875d38b2b';
     this.minConfidence = Number(process.env.GLOBAL_MT5_MIN_CONFIDENCE || 85);
     this.defaultVolume = Number(process.env.GLOBAL_MT5_VOLUME || 0.01);
     this.strategyName = 'XAUUSD 1';
