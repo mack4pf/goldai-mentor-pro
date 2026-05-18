@@ -81,16 +81,34 @@ class GoldPriceService {
         console.log('⚠️ Returning last known cached price as fallback.');
         return this.priceCache.priceData;
       }
-      // ULTIMATE FALLBACK: Return a generic structure so AI can still reason
-      return {
-        price: 2650.00,
-        symbol: 'XAUUSD',
-        change: 0,
-        changePercent: 0,
-        source: 'system_fallback',
-        timestamp: new Date().toISOString()
-      };
+
+      // No synthetic price fallback. Force upstream HOLD/no-trade behavior.
+      throw new Error('Gold price unavailable: no trusted fallback source');
     }
+  }
+
+  async getVerificationSnapshot(excludeSource = null) {
+    const snapshots = [];
+
+    if (excludeSource !== 'goldapi' && this.goldAPIKeys.length > 0) {
+      try {
+        const quote = await this.getGoldAPIPrice(this.goldAPIKeys[this.currentGoldAPIKeyIndex]);
+        snapshots.push({ source: 'goldapi', price: quote.price, timestamp: quote.timestamp });
+      } catch (error) {
+        console.log(`⚠️ Verification quote failed (goldapi): ${error.message}`);
+      }
+    }
+
+    if (excludeSource !== 'alphavantage' && this.alphaVantageKeys.length > 0) {
+      try {
+        const quote = await this.getAlphaVantagePrice(this.alphaVantageKeys[this.currentAlphaVantageKeyIndex]);
+        snapshots.push({ source: 'alphavantage', price: quote.price, timestamp: quote.timestamp });
+      } catch (error) {
+        console.log(`⚠️ Verification quote failed (alphavantage): ${error.message}`);
+      }
+    }
+
+    return snapshots;
   }
 
   async tryGoldAPIWithMultipleKeys() {

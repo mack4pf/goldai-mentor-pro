@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const openaiService = require('./openaiService');
 const databaseService = require('./databaseService');
 const axios = require('axios');
+hconst globalMt5WebhookService = require('./globalMt5WebhookService');
 
 class CronService {
     constructor() {
@@ -70,6 +71,9 @@ class CronService {
 
                 // 2. Push to Bridge API for Master EA
                 await this.pushToBridge(masterSignal);
+
+                // 3. Push A+ setups to global MT5 webhook executor
+                await globalMt5WebhookService.dispatchIfEligible(masterSignal, 'cron_master_hourly');
             } else {
                 // NO CLEAR SETUP
                 console.log('   🤫 NO CLEAR SETUP FOUND across timeframes. Sending update...');

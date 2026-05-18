@@ -76,6 +76,10 @@ class OpenAIService {
         return this.getHoldSignal(timeframe, "Gold price unavailable", marketData);
       }
 
+      if (goldPriceData.verified === false) {
+        return this.getHoldSignal(timeframe, `Price verification failed: ${goldPriceData.verificationMessage || 'cross-source mismatch'}`, marketData);
+      }
+
       const prompt = await this.buildProfessionalTradingPrompt(
         marketData, timeframe, userContext, null, balanceCategory
       );
@@ -330,7 +334,6 @@ Act exactly according to this prompt. Be extremely concise. Your response must b
   async getValidatedGoldPrice() {
     try {
       const primaryPrice = await goldPriceService.getGoldPrice();
-      // NOTE: verifyGoldPrice is not fully implemented but kept for structure
       const verification = await this.verifyGoldPrice(primaryPrice);
 
       return {
@@ -338,22 +341,60 @@ Act exactly according to this prompt. Be extremely concise. Your response must b
         verified: verification.isVerified,
         verificationSources: verification.sources,
         averagePrice: verification.averagePrice,
-        priceDeviation: verification.deviationPercent
+        priceDeviation: verification.deviationPercent,
+        verificationMessage: verification.message
       };
     } catch (error) {
       console.error('Price validation failed:', error);
-      // Return basic price data if validation fails
-      return await goldPriceService.getGoldPrice();
+
+      return {
+        price: null,
+        source: 'validation_failure',
+        verified: false,
+        verificationSources: [],
+        averagePrice: null,
+        priceDeviation: 1,
+        verificationMessage: error.message
+      };
     }
   }
 
   async verifyGoldPrice(primaryPrice) {
+    if (!primaryPrice || !primaryPrice.price) {
+      return {
+        isVerified: false,
+        sources: [],
+        averagePrice: null,
+        deviationPercent: 1,
+        message: 'Primary source has no valid price.'
+      };
+    }
+
+    const verificationQuotes = await goldPriceService.getVerificationSnapshot(primaryPrice.source);
+    const allPrices = [primaryPrice.price, ...verificationQuotes.map(q => q.price)].filter(p => Number.isFinite(Number(p)));
+
+    if (allPrices.length < 2) {
+      return {
+        isVerified: false,
+        sources: verificationQuotes.map(q => q.source),
+        averagePrice: primaryPrice.price,
+        deviationPercent: 1,
+        message: 'Not enough independent sources for verification.'
+      };
+    }
+
+    const averagePrice = allPrices.reduce((sum, value) => sum + Number(value), 0) / allPrices.length;
+    const deviationPercent = Math.abs(primaryPrice.price - averagePrice) / averagePrice;
+    const isVerified = deviationPercent <= this.priceAccuracyThreshold;
+
     return {
-      isVerified: true,
-      sources: [],
-      averagePrice: primaryPrice.price,
-      deviationPercent: 0,
-      message: 'Price assumed correct (single source).'
+      isVerified,
+      sources: verificationQuotes.map(q => q.source),
+      averagePrice,
+      deviationPercent,
+      message: isVerified
+        ? 'Price verified across multiple sources.'
+        : `Price mismatch too high (${(deviationPercent * 100).toFixed(2)}%).`
     };
   }
 
@@ -516,30 +557,29 @@ PRE - VALIDATION RESULTS(From User's Code): - Overall Score: ${preValidation.con
       throw new Error("AI issued signal but could not determine entry price from market data.");
     }
 
-    // FORCE RE-CALCULATION of TP levels to ensure user's strict requests
+    let levelNormalization = {
+      normalized: false,
+      reasons: []
+    };
+
     if (signal !== 'HOLD') {
-      const isBuy = signal.includes('BUY');
+      const normalizedLevels = this.normalizeValidatedLevels(signal, entry, {
+        stopLoss,
+        takeProfit1,
+        takeProfit2,
+        takeProfit3,
+        takeProfit4
+      });
 
-      // Calculate missing or incorrect levels (assuming 1 pip = 0.10 on XAUUSD)
-      const pipMultiplier = 0.10;
-
-      if (stopLoss === 0 || Math.abs(entry - stopLoss) > (50 * pipMultiplier)) {
-        stopLoss = isBuy ? entry - (40 * pipMultiplier) : entry + (40 * pipMultiplier);
-      }
-
-      // Always set strict TP levels
-      takeProfit1 = isBuy ? entry + (30 * pipMultiplier) : entry - (30 * pipMultiplier);
-      takeProfit2 = isBuy ? entry + (50 * pipMultiplier) : entry - (50 * pipMultiplier);
-      takeProfit3 = isBuy ? entry + (100 * pipMultiplier) : entry - (100 * pipMultiplier);
-      takeProfit4 = isBuy ? entry + (150 * pipMultiplier) : entry - (150 * pipMultiplier);
-    }
-
-    // Fallback for missing SL/TP
-    if (stopLoss === 0 || takeProfit1 === 0) {
-      const calculated = this.calculateProfessionalLevels(signal, entry, marketData);
-      stopLoss = calculated.stopLoss;
-      takeProfit1 = calculated.takeProfit1;
-      takeProfit2 = calculated.takeProfit2;
+      stopLoss = normalizedLevels.stopLoss;
+      takeProfit1 = normalizedLevels.takeProfit1;
+      takeProfit2 = normalizedLevels.takeProfit2;
+      takeProfit3 = normalizedLevels.takeProfit3;
+      takeProfit4 = normalizedLevels.takeProfit4;
+      levelNormalization = {
+        normalized: normalizedLevels.normalized,
+        reasons: normalizedLevels.reasons
+      };
     }
 
     const positionSizing = this.calculatePositionSizing(userContext, entry, stopLoss);
@@ -561,7 +601,8 @@ PRE - VALIDATION RESULTS(From User's Code): - Overall Score: ${preValidation.con
       marketContext: marketContext.trim() || "N/A",
       riskManagement: finalRiskManagement, professionalRecommendation: updatedRecommendation,
       positionSizing: positionSizing, fullAnalysis: analysis, timestamp: new Date().toISOString(), source: source,
-      userContext: userContext, riskRewardRatio: "Multi-TP / Scaling"
+      userContext: userContext, riskRewardRatio: "Multi-TP / Scaling",
+      levelNormalization
     };
   }
 
@@ -683,6 +724,66 @@ PRE - VALIDATION RESULTS(From User's Code): - Overall Score: ${preValidation.con
     const ratio = (reward / risk).toFixed(2);
     return { ratio: `1:${ratio}`, score: Math.min(parseFloat(ratio) / 2, 1) };
   }
+
+  normalizeValidatedLevels(signal, entry, levels) {
+    const isBuy = signal.includes('BUY');
+    const pipMultiplier = 0.10;
+    const reasons = [];
+
+    const defaults = {
+      stopLoss: isBuy ? entry - (40 * pipMultiplier) : entry + (40 * pipMultiplier),
+      takeProfit1: isBuy ? entry + (30 * pipMultiplier) : entry - (30 * pipMultiplier),
+      takeProfit2: isBuy ? entry + (50 * pipMultiplier) : entry - (50 * pipMultiplier),
+      takeProfit3: isBuy ? entry + (100 * pipMultiplier) : entry - (100 * pipMultiplier),
+      takeProfit4: isBuy ? entry + (150 * pipMultiplier) : entry - (150 * pipMultiplier)
+    };
+
+    const isDirectional = (price) => isBuy ? price > entry : price < entry;
+
+    let stopLoss = levels.stopLoss;
+    const slDistance = Math.abs(entry - stopLoss);
+    if (!stopLoss || slDistance < (30 * pipMultiplier) || slDistance > (50 * pipMultiplier)) {
+      stopLoss = defaults.stopLoss;
+      reasons.push('sl_out_of_range');
+    }
+
+    const validateTp = (value, fallback, minDistance, reason) => {
+      const distance = Math.abs(value - entry);
+      if (!value || !isDirectional(value) || distance < minDistance) {
+        reasons.push(reason);
+        return fallback;
+      }
+      return value;
+    };
+
+    let takeProfit1 = validateTp(levels.takeProfit1, defaults.takeProfit1, 25 * pipMultiplier, 'tp1_invalid');
+    let takeProfit2 = validateTp(levels.takeProfit2, defaults.takeProfit2, 40 * pipMultiplier, 'tp2_invalid');
+    let takeProfit3 = validateTp(levels.takeProfit3, defaults.takeProfit3, 80 * pipMultiplier, 'tp3_invalid');
+    let takeProfit4 = validateTp(levels.takeProfit4, defaults.takeProfit4, 120 * pipMultiplier, 'tp4_invalid');
+
+    const isOrdered = isBuy
+      ? (takeProfit1 < takeProfit2 && takeProfit2 < takeProfit3 && takeProfit3 < takeProfit4)
+      : (takeProfit1 > takeProfit2 && takeProfit2 > takeProfit3 && takeProfit3 > takeProfit4);
+
+    if (!isOrdered) {
+      takeProfit1 = defaults.takeProfit1;
+      takeProfit2 = defaults.takeProfit2;
+      takeProfit3 = defaults.takeProfit3;
+      takeProfit4 = defaults.takeProfit4;
+      reasons.push('tp_order_invalid');
+    }
+
+    return {
+      stopLoss,
+      takeProfit1,
+      takeProfit2,
+      takeProfit3,
+      takeProfit4,
+      normalized: reasons.length > 0,
+      reasons
+    };
+  }
+
   calculateProfessionalLevels(signal, entry, marketData) {
     // We assume the goldPriceService provides a reasonable ATR (e.g., 15 cents/pip)
     const volatility = marketData.goldPrice?.volatility?.atr || 15;

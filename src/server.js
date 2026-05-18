@@ -18,6 +18,7 @@ const goldPriceService = require('./services/market/goldPriceService');
 const newsService = require('./services/market/newsService');
 
 const openaiService = require('./services/openaiService');
+const globalMt5WebhookService = require('./services/globalMt5WebhookService');
 
 // Initialize Express app for health checks
 const app = express();
@@ -617,6 +618,9 @@ async function generateAndSendSignal(chatId, timeframe, userContext = null, bala
     // CRITICAL FIX: Direct call to openaiService
     const signal = await openaiService.generateTradingSignal(timeframe, userContext, balanceCategory);
 
+    // Send only A+ setups (85-100 confidence) to global MT5 webhook.
+    await globalMt5WebhookService.dispatchIfEligible(signal, `manual_${timeframe}`);
+
     const signalMessage = formatSignalMessage(signal);
     await bot.editMessageText(signalMessage, {
       chat_id: chatId,
@@ -669,6 +673,7 @@ async function generateMultipleSignals(chatId, userContext = null) {
       try {
         // CRITICAL FIX: Direct call to openaiService
         const signal = await openaiService.generateTradingSignal(tf, userContext, 'default_multi_signal');
+        await globalMt5WebhookService.dispatchIfEligible(signal, `multi_${tf}`);
         allSignals.push(signal);
       } catch (error) {
         console.error(`Error generating ${tf} signal:`, error);

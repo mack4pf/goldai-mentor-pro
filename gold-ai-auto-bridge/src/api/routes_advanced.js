@@ -45,33 +45,62 @@ const validateBridgeToken = (req, res, next) => {
  */
 router.post('/signals', async (req, res) => {
     try {
-        const { symbol, type, entry, sl, tp, tp2, tp3, tp4, timeframe, confidence } = req.body;
+        const { symbol, type, entry, sl, tp, tp2, tp3, tp4, timeframe, confidence, confluence } = req.body;
 
-        if (!symbol || !type || !entry) {
-            return res.status(400).json({ error: 'Missing signal data' });
+        const entryValue = Number(entry);
+        const slValue = Number(sl);
+        const tpValue = Number(tp);
+        const confidenceValue = Number(confidence || 0);
+
+        if (!symbol || !type || !entryValue || !slValue || !tpValue) {
+            return res.status(400).json({
+                error: 'Missing required signal data: symbol, type, entry, sl, tp'
+            });
         }
 
-        console.log(`⚡ Signal Received: ${type} ${symbol} @ ${entry} (${confidence}%)`);
+        console.log(`⚡ Signal Received: ${type} ${symbol} @ ${entryValue} (${confidenceValue}%)`);
 
-        // Calculate simple quality score based on confidence
-        const qualityScore = confidence || 50;
-        const shouldMonitor = qualityScore >= 65;
+        const normalizedForScoring = {
+            type,
+            confidence: confidenceValue,
+            entry: entryValue,
+            sl: slValue,
+            tp: tpValue,
+            confluence
+        };
 
-        console.log(`   Quality: ${qualityScore}/100 | Monitor: ${shouldMonitor ? 'YES' : 'NO'}`);
+        const scoreDetails = SignalScorer.calculateDetailedScore(normalizedForScoring);
+        const qualityScore = scoreDetails.score;
+        const shouldMonitor = SignalScorer.shouldMonitor(normalizedForScoring);
+
+        console.log(`   Quality: ${qualityScore}/100 | RR: ${scoreDetails.riskReward} (min ${scoreDetails.minRR}) | Monitor: ${shouldMonitor ? 'YES' : 'NO'}`);
+        console.log(`   Components: C=${scoreDetails.components.confidenceScore} CF=${scoreDetails.components.confluenceScore} RR=${scoreDetails.components.rrScore} RSI=${scoreDetails.components.rsiScore} MC=${scoreDetails.components.contextScore}`);
 
         if (!shouldMonitor) {
-            console.log(`   ⛔ Quality too low (< 65). Skipping.`);
+            console.log(`   ⛔ Quality gate failed. Reasons: ${scoreDetails.hardFails.join(', ') || 'score_below_threshold'}`);
             return res.json({
                 success: true,
-                message: 'Signal quality below threshold',
+                message: 'Signal quality gate failed',
                 qualityScore,
+                qualityDetails: scoreDetails,
                 distributed: 0
             });
         }
 
         // Save signal
         const signalRef = await db.collection('signals').add({
-            symbol, type, entry, sl, tp, tp2, tp3, tp4, timeframe, confidence, qualityScore,
+            symbol,
+            type,
+            entry: entryValue,
+            sl: slValue,
+            tp: tpValue,
+            tp2,
+            tp3,
+            tp4,
+            timeframe,
+            confidence: confidenceValue,
+            qualityScore,
+            qualityDetails: scoreDetails,
             createdAt: new Date(),
             status: 'active'
         });
@@ -84,7 +113,18 @@ router.post('/signals', async (req, res) => {
             status: 'monitoring',
             addedAt: new Date(),
             signalData: {
-                symbol, type, entry, sl, tp, tp2, tp3, tp4, timeframe, confidence, qualityScore
+                symbol,
+                type,
+                entry: entryValue,
+                sl: slValue,
+                tp: tpValue,
+                tp2,
+                tp3,
+                tp4,
+                timeframe,
+                confidence: confidenceValue,
+                qualityScore,
+                qualityDetails: scoreDetails
             }
         });
 
@@ -96,6 +136,7 @@ router.post('/signals', async (req, res) => {
             success: true,
             signalId: signalRef.id,
             qualityScore,
+            qualityDetails: scoreDetails,
             distributed: distributedCount
         });
 
@@ -186,6 +227,18 @@ router.post('/watchlist/update', forceMasterUser, async (req, res) => {
         }
 
         await snapshot.docs[0].ref.update(updateData);
+
+        // Persist outcome feedback for later quality tuning and reporting.
+        await db.collection('signals').doc(signalId).set({
+            lastStatus: status,
+            lastTicket: ticket || null,
+            updatedAt: new Date(),
+            outcome: {
+                status,
+                ticket: ticket || null,
+                updatedAt: new Date()
+            }
+        }, { merge: true });
 
         res.json({ success: true });
 
