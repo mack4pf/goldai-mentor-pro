@@ -596,10 +596,13 @@ PRE - VALIDATION RESULTS(From User's Code): - Overall Score: ${preValidation.con
     🎯 **REQUIRED OUTPUT:** Provide your final decision (BUY, SELL) in the strict format:
     SIGNAL: [BUY|SELL|STRONG_BUY|STRONG_SELL]
     CONFIDENCE: [0-100]%
+    STRATEGY GRADE: [A+|A|B+|B|C]
     ENTRY: [Price]
     STOP LOSS: [Price]
     TAKE PROFIT 1: [Price]
     TAKE PROFIT 2: [Price]
+    TAKE PROFIT 3: [Price]
+    FINAL TP (TP4): [Price]
     TECHNICAL RATIONALE: [Why the technicals support this trade.]
     LEVEL EXPLANATION: [How the Entry/SL/TP meet the Strategy ID requirements.]
     MARKET CONTEXT & FUNDAMENTALS: [News impact and Macro context.]
