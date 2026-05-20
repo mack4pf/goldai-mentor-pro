@@ -14,12 +14,13 @@ class GoldPriceService {
 
 
     this.alphaVantageKeys = [
+      process.env.ALPHA_VANTAGE_API_KEY,  // Fixed: was ALPHA_VANTAGE_KEY
       process.env.ALPHA_VANTAGE_KEY,
       process.env.ALPHA_VANTAGE_KEY_2,
       process.env.ALPHA_VANTAGE_KEY_3,
       process.env.ALPHA_VANTAGE_KEY_4,
       process.env.ALPHA_VANTAGE_KEY_5
-    ].filter(key => key); // Remove empty keys
+    ].filter((key, idx, arr) => key && arr.indexOf(key) === idx); // Remove empty & duplicates
 
     // Track current key indices for rotation
     this.currentGoldAPIKeyIndex = 0;
