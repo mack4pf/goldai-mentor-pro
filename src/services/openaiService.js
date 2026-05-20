@@ -10,12 +10,34 @@ class OpenAIService {
   constructor() {
     this.priceAccuracyThreshold = 0.02;
 
-    // Load multiple Gemini API keys for rotation
-    this.geminiKeys = [];
+    // ----------------------------------------------------------------------
+    // GROQ KEYS (PRIMARY AI PROVIDER)
+    // ----------------------------------------------------------------------
+    this.groqKeys = [];
+    const groqKeyList = [
+      process.env.GROQ_API_KEY_1,
+      process.env.GROQ_API_KEY_2,
+      process.env.GROQ_API_KEY_3
+    ];
+    groqKeyList.forEach(key => {
+      if (key && key.trim() !== '' && !this.groqKeys.includes(key)) {
+        this.groqKeys.push(key);
+      }
+    });
+    this.groqKeyIndex = 0;
 
-    // Explicitly check for exact environment variable names as provided by user
+    if (this.groqKeys.length > 0) {
+      console.log(`✅ Groq AI (Primary) Initialized with ${this.groqKeys.length} API key(s)`);
+    } else {
+      console.warn('⚠️ No Groq API keys found — will fallback to Gemini.');
+    }
+
+    // ----------------------------------------------------------------------
+    // GEMINI KEYS (FALLBACK AI PROVIDER)
+    // ----------------------------------------------------------------------
+    this.geminiKeys = [];
     const possibleKeys = [
-      process.env.GEMINI_API_KEY,    // Main key
+      process.env.GEMINI_API_KEY,
       process.env.GEMINI_API_KEY_1,
       process.env.GEMINI_API_KEY_2,
       process.env.GEMINI_API_KEY_3,
@@ -27,21 +49,26 @@ class OpenAIService {
       process.env.GEMINI_API_KEY_9,
       process.env.GEMINI_API_KEY_10
     ];
-
-    // Filter unique, valid keys
     possibleKeys.forEach(key => {
       if (key && key.trim() !== '' && !this.geminiKeys.includes(key)) {
         this.geminiKeys.push(key);
       }
     });
-
     this.currentKeyIndex = 0;
 
     if (this.geminiKeys.length > 0) {
-      console.log(`✅ Gemini AI Service Initialized with ${this.geminiKeys.length} unique API key(s)`);
+      console.log(`✅ Gemini AI (Fallback) Initialized with ${this.geminiKeys.length} API key(s)`);
     } else {
-      console.warn('⚠️ CRITICAL: No Gemini API keys found in environment variables.');
+      console.warn('⚠️ No Gemini API keys found in environment variables.');
     }
+  }
+
+  // Get next Groq key in rotation
+  getNextGroqKey() {
+    if (this.groqKeys.length === 0) return null;
+    const key = this.groqKeys[this.groqKeyIndex];
+    this.groqKeyIndex = (this.groqKeyIndex + 1) % this.groqKeys.length;
+    return key;
   }
 
   // Get next Gemini key in rotation
@@ -84,8 +111,8 @@ class OpenAIService {
         marketData, timeframe, userContext, null, balanceCategory
       );
 
-      // Exclusive use of Gemini
-      return await this.callGemini(prompt, marketData, timeframe, userContext);
+      // Groq is primary — Gemini is fallback (handled inside callGroq)
+      return await this.callGroq(prompt, marketData, timeframe, userContext);
 
     } catch (error) {
       console.error('❌ CRITICAL SIGNAL FAILURE:', error.message);
@@ -149,7 +176,8 @@ class OpenAIService {
       PROFESSIONAL RECOMMENDATION: [Exact entry trigger, e.g. "Wait for H1 Bearish Engulfing at entry"]
       `;
 
-      return await this.callGemini(prompt, marketData, 'Master', { balance: 2000, riskTier: 'Professional' });
+      // Groq is primary — Gemini is fallback (handled inside callGroq)
+      return await this.callGroq(prompt, marketData, 'Master', { balance: 2000, riskTier: 'Professional' });
 
     } catch (error) {
       console.error('❌ MASTER SIGNAL FAILURE:', error.message);
@@ -162,7 +190,72 @@ class OpenAIService {
   // ----------------------------------------------------------------------
 
   async callAIProviders(prompt, marketData, timeframe, userContext) {
-    // Deprecated wrapper, redirects to callGemini
+    // Deprecated wrapper, redirects to primary AI
+    return this.callGroq(prompt, marketData, timeframe, userContext);
+  }
+
+  async callGroq(prompt, marketData, timeframe, userContext) {
+    const models = [
+      'llama-3.3-70b-versatile',
+      'llama-3.1-70b-versatile',
+      'mixtral-8x7b-32768'
+    ];
+    let lastError = null;
+
+    const maxKeyAttempts = Math.max(this.groqKeys.length, 1);
+
+    for (let i = 0; i < maxKeyAttempts; i++) {
+      const apiKey = this.getNextGroqKey();
+      if (!apiKey) break; // No keys, skip to Gemini fallback
+
+      for (const modelName of models) {
+        try {
+          console.log(`   🔄 Groq: Attempting Key #${this.groqKeyIndex} with ${modelName}...`);
+
+          const response = await axios.post(
+            'https://api.groq.com/openai/v1/chat/completions',
+            {
+              model: modelName,
+              messages: [
+                { role: 'system', content: this.getSystemPrompt() },
+                { role: 'user', content: prompt }
+              ],
+              max_tokens: 2000,
+              temperature: 0.1
+            },
+            {
+              headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json'
+              },
+              timeout: 45000
+            }
+          );
+
+          const analysis = response.data.choices[0].message.content;
+          console.log(`   ✅ Groq Success! (Key: #${this.groqKeyIndex}, Model: ${modelName})`);
+          return this.parseProfessionalSignal(analysis, marketData, timeframe, userContext, 'groq');
+
+        } catch (error) {
+          lastError = error;
+          const isQuotaError = error.response?.status === 429;
+          const isModelError = error.response?.status === 400 || error.response?.status === 404;
+
+          if (isQuotaError) {
+            console.warn(`   ⚠️ Groq Rate Limit on Key #${this.groqKeyIndex} (${modelName}). Trying next...`);
+          } else if (isModelError) {
+            console.warn(`   ⚠️ Groq Model Error on Key #${this.groqKeyIndex} (${modelName}). Trying next model...`);
+          } else {
+            console.warn(`   ⚠️ Groq Error on Key #${this.groqKeyIndex} (${modelName}): ${error.message}`);
+          }
+
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      }
+    }
+
+    // All Groq attempts failed — fallback to Gemini
+    console.warn(`   ⚠️ All Groq attempts failed. Falling back to Gemini... (Last error: ${lastError?.message})`);
     return this.callGemini(prompt, marketData, timeframe, userContext);
   }
 
