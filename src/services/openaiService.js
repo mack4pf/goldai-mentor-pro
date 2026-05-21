@@ -163,7 +163,8 @@ class OpenAIService {
       1. Define the **Storyline**: (e.g., Weekly rejected Resistance, heading to Daily Support).
       2. Identify a **Fresh Level**: Find a price point where a Line Chart body connection remains untouched.
       3. Verify **Confluence**: Match with a Trendline or Engulfing Zone.
-      4. Decision: If an **A+ (85%+)** or **A (75%+)** setup exists, output SIGNAL. Otherwise, output HOLD.
+      4. Decision: Output your **best actionable SIGNAL** (BUY/SELL/STRONG_BUY/STRONG_SELL) when confidence is at least 65% and structure is valid.
+        Use HOLD only when market structure is truly unclear, contradictory, or confidence is below 65%.
       
       You MUST respond with:
       SIGNAL: [STRONG_BUY|BUY|HOLD|SELL|STRONG_SELL]
@@ -172,6 +173,9 @@ class OpenAIService {
       ENTRY: [Price]
       STOP LOSS: [Price]
       TAKE PROFIT 1: [Price]
+      TAKE PROFIT 2: [Price]
+      TAKE PROFIT 3: [Price]
+      FINAL TP (TP4): [Price]
       TECHNICAL RATIONALE: [Explain the HTF Storyline and why the level is Fresh]
       PROFESSIONAL RECOMMENDATION: [Exact entry trigger, e.g. "Wait for H1 Bearish Engulfing at entry"]
       `;

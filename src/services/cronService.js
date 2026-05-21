@@ -8,12 +8,12 @@ class CronService {
     constructor() {
         this.isJobRunning = false;
         this.bot = null; // Will be injected from server.js
-        this.minHourlyConfidence = Number(process.env.HOURLY_MIN_CONFIDENCE || 82);
-        this.minHourlyRr = Number(process.env.HOURLY_MIN_RR || 1.8);
+        this.minHourlyConfidence = Number(process.env.HOURLY_MIN_CONFIDENCE || 70);
+        this.minHourlyRr = Number(process.env.HOURLY_MIN_RR || 0.6);
         this.minSlPips = Number(process.env.HOURLY_MIN_SL_PIPS || 30);
         this.maxSlPips = Number(process.env.HOURLY_MAX_SL_PIPS || 80);
-        this.allowedGrades = (process.env.HOURLY_ALLOWED_GRADES || 'A+,A').split(',').map(v => v.trim().toUpperCase()).filter(Boolean);
-        this.restrictToMainSessions = String(process.env.HOURLY_RESTRICT_SESSIONS || 'true').toLowerCase() === 'true';
+        this.allowedGrades = (process.env.HOURLY_ALLOWED_GRADES || 'A+,A,B+').split(',').map(v => v.trim().toUpperCase()).filter(Boolean);
+        this.restrictToMainSessions = String(process.env.HOURLY_RESTRICT_SESSIONS || 'false').toLowerCase() === 'true';
     }
 
     isMainTradingSession() {
@@ -162,7 +162,7 @@ class CronService {
             } else {
                 // NO CLEAR SETUP
                 console.log(`   🤫 HOURLY SETUP BLOCKED: ${readiness.reasons.join(', ')}`);
-                await this.broadcastNoSetupUpdate();
+                await this.broadcastNoSetupUpdate(readiness);
             }
 
         } catch (error) {
@@ -174,16 +174,20 @@ class CronService {
         console.log('================================================================================');
     }
 
-    async broadcastNoSetupUpdate() {
+    async broadcastNoSetupUpdate(readiness = null) {
         if (!this.bot) return;
         try {
             const users = await databaseService.getAllUsers();
             const activeUsers = users.filter(u => u.status === 'active' && u.telegramId);
 
+            const reasonText = readiness?.reasons?.length
+                ? readiness.reasons.join(', ')
+                : 'Market is currently unfresh or lacking confluence.';
+
             const message = `📊 <b>Master Market Update</b>\n` +
                 `━━━━━━━━━━━━━━━━━━━━━━\n` +
                 `⏰ <b>Status:</b> No professional setup found for this hour.\n` +
-                `🔍 <b>Reason:</b> Market is currently unfresh or lacking "X" Confluence.\n\n` +
+                `🔍 <b>Reason:</b> ${reasonText}\n\n` +
                 `💡 <i>"The best trade is sometimes no trade. Preserve your capital."</i>\n\n` +
                 `⏳ Monitoring next hour...`;
 
