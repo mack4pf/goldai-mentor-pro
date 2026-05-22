@@ -2,7 +2,7 @@ const axios = require('axios');
 
 class GlobalMt5WebhookService {
   constructor() {
-    this.webhookUrl = process.env.GLOBAL_MT5_WEBHOOK_URL || 'https://nojai-backend.onrender.com/api/mt5-webhook/global/nojai_mt5_xauusd_cc0c64afea2c7ca875d38b2b';
+    this.webhookUrl = process.env.WEBHOOK_URL || process.env.GLOBAL_MT5_WEBHOOK_URL || 'https://nojai-backend.onrender.com/api/mt5-webhook/global/nojai_mt5_xauusd_cc0c64afea2c7ca875d38b2b';
     this.minConfidence = Number(process.env.GLOBAL_MT5_MIN_CONFIDENCE || 85);
     this.defaultVolume = Number(process.env.GLOBAL_MT5_VOLUME || 0.01);
     this.strategyName = 'XAUUSD 1';
@@ -40,10 +40,13 @@ class GlobalMt5WebhookService {
     }
   }
 
-  isEligible(signal) {
+  isEligible(signal, minConfidenceOverride = null) {
     if (!signal) return false;
 
     const confidence = Number(signal.confidence || 0);
+    const minConfidence = Number.isFinite(Number(minConfidenceOverride))
+      ? Number(minConfidenceOverride)
+      : this.minConfidence;
     const signalType = (signal.signal || '').toString().toUpperCase();
 
     if (!signalType || signalType === 'HOLD' || signalType === 'ERROR') {
@@ -54,7 +57,7 @@ class GlobalMt5WebhookService {
       return false;
     }
 
-    return confidence >= this.minConfidence && confidence <= 100;
+    return confidence >= minConfidence && confidence <= 100;
   }
 
   buildPayload(signal) {
@@ -93,7 +96,10 @@ class GlobalMt5WebhookService {
     return payload;
   }
 
-  async dispatchIfEligible(signal, source = 'unknown') {
+  async dispatchIfEligible(signal, source = 'unknown', options = {}) {
+    const minConfidence = Number.isFinite(Number(options?.minConfidence))
+      ? Number(options.minConfidence)
+      : this.minConfidence;
     const confidence = Number(signal?.confidence || 0);
     const signalType = (signal?.signal || '').toString().toUpperCase();
 
@@ -101,12 +107,12 @@ class GlobalMt5WebhookService {
       symbol: signal?.symbol || 'XAUUSD',
       signal: signalType,
       confidence: `${confidence}%`,
-      minRequired: `${this.minConfidence}%`,
-      eligible: this.isEligible(signal)
+      minRequired: `${minConfidence}%`,
+      eligible: this.isEligible(signal, minConfidence)
     });
 
-    if (!this.isEligible(signal)) {
-      const reason = confidence < this.minConfidence ? `confidence ${confidence}% < ${this.minConfidence}%` : 
+    if (!this.isEligible(signal, minConfidence)) {
+      const reason = confidence < minConfidence ? `confidence ${confidence}% < ${minConfidence}%` : 
                      (signalType === 'HOLD' || signalType === 'ERROR') ? `signal type is ${signalType}` :
                      !signalType.includes('BUY') && !signalType.includes('SELL') ? `invalid signal type: ${signalType}` :
                      'unknown reason';

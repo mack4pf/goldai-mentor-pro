@@ -3,17 +3,24 @@ const openaiService = require('./openaiService');
 const databaseService = require('./databaseService');
 const axios = require('axios');
 const globalMt5WebhookService = require('./globalMt5WebhookService');
+const newsService = require('./market/newsService');
+const signalModelService = require('./signalModelService');
 
 class CronService {
     constructor() {
         this.isJobRunning = false;
+        this.isNewsJobRunning = false;
         this.bot = null; // Will be injected from server.js
         this.minHourlyConfidence = Number(process.env.HOURLY_MIN_CONFIDENCE || 70);
-        this.minHourlyRr = Number(process.env.HOURLY_MIN_RR || 0.6);
+        this.minHourlyRr = Number(process.env.HOURLY_MIN_RR || 1.0);
         this.minSlPips = Number(process.env.HOURLY_MIN_SL_PIPS || 30);
         this.maxSlPips = Number(process.env.HOURLY_MAX_SL_PIPS || 80);
         this.allowedGrades = (process.env.HOURLY_ALLOWED_GRADES || 'A+,A,B+').split(',').map(v => v.trim().toUpperCase()).filter(Boolean);
         this.restrictToMainSessions = String(process.env.HOURLY_RESTRICT_SESSIONS || 'false').toLowerCase() === 'true';
+        this.newsPollingMinutes = Number(process.env.NEWS_SIGNAL_POLL_MINUTES || 5);
+        this.newsMinConfidence = Number(process.env.NEWS_SIGNAL_MIN_CONFIDENCE || 68);
+        this.newsLookbackMinutes = Number(process.env.NEWS_SIGNAL_LOOKBACK_MINUTES || 75);
+        this.newsEventCache = new Map();
     }
 
     isMainTradingSession() {
@@ -58,6 +65,8 @@ class CronService {
         const takeProfit1 = Number(signal.takeProfit1);
         const rr = this.calculateRiskReward(entry, stopLoss, takeProfit1);
         const slPips = this.toPips(Math.abs(entry - stopLoss));
+        const volatilityNorm = Number(signal?.modelPlan?.features?.volatilityNorm || 0);
+        const dailyRiskAllowed = signal?.dailyRisk?.allowed !== false;
 
         if (!signalType.includes('BUY') && !signalType.includes('SELL')) {
             reasons.push('invalid_signal_type');
@@ -74,6 +83,12 @@ class CronService {
         if (!Number.isFinite(rr) || rr < this.minHourlyRr) {
             reasons.push(`rr_below_${this.minHourlyRr.toFixed(2)}`);
         }
+        if (!dailyRiskAllowed) {
+            reasons.push('daily_loss_limit_reached');
+        }
+        if (volatilityNorm > 0.95 && confidence < 82) {
+            reasons.push('volatility_too_high_without_strong_edge');
+        }
         if (this.restrictToMainSessions && !this.isMainTradingSession()) {
             reasons.push('outside_main_trading_session');
         }
@@ -88,7 +103,9 @@ class CronService {
                 confidence,
                 grade,
                 rr: Number.isFinite(rr) ? rr.toFixed(2) : 'N/A',
-                slPips: Number.isFinite(slPips) ? slPips.toFixed(1) : 'N/A'
+                slPips: Number.isFinite(slPips) ? slPips.toFixed(1) : 'N/A',
+                volatilityNorm: Number.isFinite(volatilityNorm) ? volatilityNorm.toFixed(2) : 'N/A',
+                dailyRiskAllowed
             }
         };
     }
@@ -106,9 +123,111 @@ class CronService {
             await this.generateAllSignals();
         });
 
+        // Check high-impact news frequently and trigger event-driven setup generation.
+        cron.schedule(`*/${this.newsPollingMinutes} * * * *`, async () => {
+            await this.generateNewsEventSignal();
+        });
+
+        // Periodically adapt model thresholds based on labeled outcomes.
+        cron.schedule('*/30 * * * *', async () => {
+            await signalModelService.refreshAdaptiveState();
+        });
+
         // Run once on startup (delayed 30s)
         console.log('🚀 Triggering initial signal generation in 30 seconds...');
         setTimeout(() => this.generateAllSignals(), 30000);
+        setTimeout(() => this.generateNewsEventSignal(), 45000);
+        setTimeout(() => signalModelService.refreshAdaptiveState(), 60000);
+    }
+
+    getNewsFingerprint(article) {
+        const key = `${article?.title || ''}|${article?.publishedAt || ''}|${article?.source || ''}`.toLowerCase().trim();
+        return Buffer.from(key).toString('base64url');
+    }
+
+    isNewsEventFresh(article) {
+        const published = article?.publishedAt ? new Date(article.publishedAt).getTime() : Date.now();
+        const ageMinutes = (Date.now() - published) / (1000 * 60);
+        return ageMinutes <= this.newsLookbackMinutes;
+    }
+
+    getHighImpactArticles(newsData) {
+        let articles = newsData?.articles || [];
+        if (articles && typeof articles === 'object' && !Array.isArray(articles)) {
+            articles = Object.values(articles).flat();
+        }
+        if (!Array.isArray(articles)) return [];
+
+        return articles.filter(article => {
+            const text = `${article?.title || ''} ${article?.summary || ''}`.toLowerCase();
+            const explicitImpact = String(article?.impact || '').toLowerCase() === 'high';
+            const keywordImpact = ['fomc', 'fed', 'rate decision', 'cpi', 'nfp', 'powell', 'interest rate'].some(k => text.includes(k));
+            return (explicitImpact || keywordImpact) && this.isNewsEventFresh(article);
+        });
+    }
+
+    pruneNewsCache() {
+        const ttlMs = this.newsLookbackMinutes * 60 * 1000;
+        for (const [fingerprint, ts] of this.newsEventCache.entries()) {
+            if ((Date.now() - ts) > ttlMs) {
+                this.newsEventCache.delete(fingerprint);
+            }
+        }
+    }
+
+    async generateNewsEventSignal() {
+        if (this.isNewsJobRunning) return;
+        this.isNewsJobRunning = true;
+
+        try {
+            const config = await databaseService.getSystemConfig();
+            if (config.broadcastEnabled === false) return;
+
+            const newsData = await newsService.getGoldNews();
+            const highImpactArticles = this.getHighImpactArticles(newsData);
+            if (highImpactArticles.length === 0) return;
+
+            const topEvent = highImpactArticles[0];
+            const fingerprint = this.getNewsFingerprint(topEvent);
+            if (this.newsEventCache.has(fingerprint)) return;
+
+            const signal = await openaiService.generateTradingSignal('news', null, 'news_event');
+            if (!signal || signal.signal === 'HOLD' || Number(signal.confidence || 0) < this.newsMinConfidence) {
+                this.newsEventCache.set(fingerprint, Date.now());
+                this.pruneNewsCache();
+                return;
+            }
+
+            const enrichedSignal = {
+                ...signal,
+                source: 'NEWS_EVENT_AUTO',
+                timeframe: 'NEWS',
+                newsTrigger: {
+                    title: topEvent.title,
+                    publishedAt: topEvent.publishedAt,
+                    impact: topEvent.impact || 'high',
+                    source: topEvent.source || 'news_feed',
+                    fingerprint
+                },
+                createdAt: new Date().toISOString(),
+                timestamp: new Date().toISOString()
+            };
+
+            await databaseService.createSignal(enrichedSignal);
+            await this.broadcastToTelegram(enrichedSignal, { timeframe: 'NEWS', tier: 'News Event' });
+            await this.pushToBridge(enrichedSignal);
+            await globalMt5WebhookService.dispatchIfEligible(enrichedSignal, 'news_event_auto', {
+                minConfidence: this.newsMinConfidence
+            });
+
+            this.newsEventCache.set(fingerprint, Date.now());
+            this.pruneNewsCache();
+            console.log(`   🚨 NEWS-EVENT SIGNAL BROADCASTED: ${topEvent.title}`);
+        } catch (error) {
+            console.error('   ❌ News event signal generation failed:', error.message);
+        } finally {
+            this.isNewsJobRunning = false;
+        }
     }
 
     async generateAllSignals() {
@@ -211,7 +330,7 @@ class CronService {
             const message = `🚀 <b>NEW SETUP: Gold (${signal.signal})</b>\n` +
                 `━━━━━━━━━━━━━━━━━━━━━━\n` +
                 `🏆 <b>GRADE:</b> ${signal.strategyGrade || 'A'}\n` +
-                `⏰ <b>TF:</b> ${config.timeframe.toUpperCase()} | 📊 <b>CONF:</b> ${signal.confidence}%\n` +
+                `⏰ <b>TF:</b> ${String(config.timeframe || signal.timeframe || 'N/A').toUpperCase()} | 📊 <b>CONF:</b> ${signal.confidence}%\n` +
                 `━━━━━━━━━━━━━━━━━━━━━━\n\n` +
 
                 `🎯 <b>LEVELS:</b>\n` +

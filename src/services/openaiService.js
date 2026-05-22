@@ -5,6 +5,7 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const goldPriceService = require('./market/goldPriceService');
 const newsService = require('./market/newsService');
+const signalModelService = require('./signalModelService');
 
 class OpenAIService {
   constructor() {
@@ -92,11 +93,31 @@ class OpenAIService {
         newsService.getGoldNews()
       ]);
 
+      const preValidation = await this.preSignalValidation({
+        goldPrice: goldPriceData,
+        news: newsData
+      }, timeframe);
+
       const marketData = {
         goldPrice: goldPriceData,
         news: newsData,
         timestamp: new Date().toISOString()
       };
+
+      const modelPlan = signalModelService.predictSignalPlan(marketData, timeframe);
+      const dailyRisk = await signalModelService.canTradeByDailyLoss();
+
+      if (!dailyRisk.allowed) {
+        return this.getHoldSignal(timeframe, `Daily risk limit reached (${dailyRisk.dailyPnl} USD)`, marketData);
+      }
+
+      if (modelPlan.recommendation === 'HOLD') {
+        return {
+          ...this.getHoldSignal(timeframe, `Model edge too low (${(modelPlan.edgeProbability * 100).toFixed(1)}%)`, marketData),
+          modelPlan,
+          dailyRisk
+        };
+      }
 
       // Direct fallback if price is missing
       if (!goldPriceData || !goldPriceData.price) {
@@ -108,11 +129,11 @@ class OpenAIService {
       }
 
       const prompt = await this.buildProfessionalTradingPrompt(
-        marketData, timeframe, userContext, null, balanceCategory
+        marketData, timeframe, userContext, preValidation, balanceCategory, modelPlan
       );
 
       // Groq is primary — Gemini is fallback (handled inside callGroq)
-      return await this.callGroq(prompt, marketData, timeframe, userContext);
+      return await this.callGroq(prompt, marketData, timeframe, userContext, preValidation, modelPlan, dailyRisk);
 
     } catch (error) {
       console.error('❌ CRITICAL SIGNAL FAILURE:', error.message);
@@ -128,6 +149,11 @@ class OpenAIService {
         this.getValidatedGoldPrice(),
         newsService.getGoldNews()
       ]);
+
+      const preValidation = await this.preSignalValidation({
+        goldPrice: goldPriceData,
+        news: newsData
+      }, 'Master');
 
       const marketData = {
         goldPrice: goldPriceData,
@@ -150,9 +176,9 @@ class OpenAIService {
       - Momentum: ${marketData.goldPrice?.changePercent}% (${marketData.goldPrice?.marketCondition?.description})
       
       📊 TIME-FRAME CONTEXT (Storyline Data):
-      - SHORT-TERM (H1/H4): Trend is ${marketData.goldPrice?.predictions?.shortTerm?.direction}. Expected near $${marketData.goldPrice?.predictions?.shortTerm?.predictedPrice}.
-      - MEDIUM-TERM (D1): Trend is ${marketData.goldPrice?.predictions?.mediumTerm?.direction}. Target near $${marketData.goldPrice?.predictions?.mediumTerm?.predictedPrice}.
-      - LONG-TERM (W1/M1): Trend is ${marketData.goldPrice?.predictions?.longTerm?.direction}. Structural bias is ${marketData.goldPrice?.predictions?.longTerm?.direction}.
+      - SHORT-TERM (H1/H4): Directional bias is ${marketData.goldPrice?.predictions?.shortTerm?.direction} (confidence ${marketData.goldPrice?.predictions?.shortTerm?.confidence || 'N/A'}%).
+      - MEDIUM-TERM (D1): Directional bias is ${marketData.goldPrice?.predictions?.mediumTerm?.direction} (confidence ${marketData.goldPrice?.predictions?.mediumTerm?.confidence || 'N/A'}%).
+      - LONG-TERM (W1/M1): Directional bias is ${marketData.goldPrice?.predictions?.longTerm?.direction} (confidence ${marketData.goldPrice?.predictions?.longTerm?.confidence || 'N/A'}%).
       
       📰 FUNDAMENTAL CONTEXT:
       - Sentiment: ${marketData.news?.overallSentiment}
@@ -181,7 +207,18 @@ class OpenAIService {
       `;
 
       // Groq is primary — Gemini is fallback (handled inside callGroq)
-      return await this.callGroq(prompt, marketData, 'Master', { balance: 2000, riskTier: 'Professional' });
+      const modelPlan = signalModelService.predictSignalPlan(marketData, 'Master');
+      const dailyRisk = await signalModelService.canTradeByDailyLoss();
+
+      if (!dailyRisk.allowed || modelPlan.recommendation === 'HOLD') {
+        return {
+          ...this.getHoldSignal('Master', 'Model or risk gate blocked trade', marketData),
+          modelPlan,
+          dailyRisk
+        };
+      }
+
+      return await this.callGroq(prompt, marketData, 'Master', { balance: 2000, riskTier: 'Professional' }, preValidation, modelPlan, dailyRisk);
 
     } catch (error) {
       console.error('❌ MASTER SIGNAL FAILURE:', error.message);
@@ -193,12 +230,12 @@ class OpenAIService {
   // 2. AI PROVIDER (GEMINI ONLY)
   // ----------------------------------------------------------------------
 
-  async callAIProviders(prompt, marketData, timeframe, userContext) {
+  async callAIProviders(prompt, marketData, timeframe, userContext, preValidation = null, modelPlan = null, dailyRisk = null) {
     // Deprecated wrapper, redirects to primary AI
-    return this.callGroq(prompt, marketData, timeframe, userContext);
+    return this.callGroq(prompt, marketData, timeframe, userContext, preValidation, modelPlan, dailyRisk);
   }
 
-  async callGroq(prompt, marketData, timeframe, userContext) {
+  async callGroq(prompt, marketData, timeframe, userContext, preValidation = null, modelPlan = null, dailyRisk = null) {
     const models = [
       'llama-3.3-70b-versatile',
       'llama-3.1-70b-versatile',
@@ -238,7 +275,7 @@ class OpenAIService {
 
           const analysis = response.data.choices[0].message.content;
           console.log(`   ✅ Groq Success! (Key: #${this.groqKeyIndex}, Model: ${modelName})`);
-          return this.parseProfessionalSignal(analysis, marketData, timeframe, userContext, 'groq');
+          return this.parseProfessionalSignal(analysis, marketData, timeframe, userContext, 'groq', preValidation, modelPlan, dailyRisk);
 
         } catch (error) {
           lastError = error;
@@ -260,10 +297,10 @@ class OpenAIService {
 
     // All Groq attempts failed — fallback to Gemini
     console.warn(`   ⚠️ All Groq attempts failed. Falling back to Gemini... (Last error: ${lastError?.message})`);
-    return this.callGemini(prompt, marketData, timeframe, userContext);
+    return this.callGemini(prompt, marketData, timeframe, userContext, preValidation, modelPlan, dailyRisk);
   }
 
-  async callDeepSeek(prompt, marketData, timeframe, userContext) {
+  async callDeepSeek(prompt, marketData, timeframe, userContext, preValidation = null) {
     if (!this.deepseek.apiKey) throw new Error('DeepSeek API key not configured');
 
     const response = await axios.post(
@@ -293,10 +330,10 @@ class OpenAIService {
     );
 
     const analysis = response.data.choices[0].message.content;
-    return this.parseProfessionalSignal(analysis, marketData, timeframe, userContext, 'deepseek');
+    return this.parseProfessionalSignal(analysis, marketData, timeframe, userContext, 'deepseek', preValidation);
   }
 
-  async callGemini(prompt, marketData, timeframe, userContext) {
+  async callGemini(prompt, marketData, timeframe, userContext, preValidation = null, modelPlan = null, dailyRisk = null) {
     // Extensive list of models to ensure we find ONE that works.
     const models = [
       "gemini-2.5-flash",      // Latest stable, balanced model[citation:1][citation:2]
@@ -333,7 +370,7 @@ class OpenAIService {
           const analysis = result.response.text();
 
           console.log(`   ✅ Gemini Success! (Key: #${this.currentKeyIndex}, Model: ${modelName})`);
-          return this.parseProfessionalSignal(analysis, marketData, timeframe, userContext, 'gemini');
+          return this.parseProfessionalSignal(analysis, marketData, timeframe, userContext, 'gemini', preValidation, modelPlan, dailyRisk);
 
         } catch (error) {
           lastError = error;
@@ -359,28 +396,26 @@ class OpenAIService {
   }
 
   // ----------------------------------------------------------------------
-  // 3. SYSTEM PROMPT (AGRESSIVE TRADING STRATEGY)
+  // 3. SYSTEM PROMPT (PROFESSIONAL TRADING STRATEGY)
   // ----------------------------------------------------------------------
 
   getSystemPrompt() {
-    // CRITICAL UPDATE: Aggressively mandates BUY or SELL with tight SL and multi-TP logic.
+    // Professional prompt emphasizing setup quality over forced trade frequency.
     return `You are a professional Gold (XAU/USD) trading assistant integrated inside a Telegram signal bot.
 Your role is to act as the primary analyst. You must apply the user's defined trading strategy based on their chosen risk/balance tier.
 
 ---
 🎯 CORE TRADING PARAMETERS (STRICT ENFORCEMENT):
-- **STOP LOSS (SL)**: MUST be between 30 to 50 pips ($3.00 - $5.00 on XAUUSD). NEVER exceed 50 pips.
-- **TAKE PROFIT 1 (TP1)**: 30 pips ($3.00).
-- **TAKE PROFIT 2 (TP2)**: 50 pips ($5.00).
-- **TAKE PROFIT 3 (TP3)**: 100 pips ($10.00).
-- **FINAL TAKE PROFIT (TP4)**: 150 pips ($15.00).
+- **STOP LOSS (SL)**: MUST be between 30 to 80 pips ($3.00 - $8.00 on XAUUSD).
+- **RR SELECTION**: Choose the best setup-based RR from 1:1, 1:2, 1:3, or 1:5.
+- **TAKE PROFITS**: Respect dynamic RR plan; TP4 can extend up to 300 pips ($30.00) when volatility and confluence justify it.
 - **BREAK EVEN (BE)**: Instruct user to move SL to Entry (BE) once profit reaches 30 to 50 pips.
 
 ---
 🏢 MARLISIINA STRATEGY RULES:
 1. **SL PLACEMENT**: Always place SL slightly below a valid Support or above a valid Resistance level.
 2. **CANDLE REJECTIONS**: When price enters the ENTRY zone, look for candle rejections like Hammers, Shooting Stars, or Bearish/Bullish Engulfing on Lower Timeframes (M5/M15).
-3. **ENTRY FILTERS**: "Sell at [Price], wait for a candle rejection (Hammer etc.) and sell in that region." This prevents panicking and provides better entries.
+3. **ENTRY FILTERS**: "Trade only at planned levels, wait for candle rejection/confirmation, and execute only when structure and trigger align."
 
 ---
 🔑 Professional XAUUSD Gold Trading Prompt
@@ -393,6 +428,8 @@ Trader Profile: 14+ Year Veteran focusing on tight SL (30-50 pips) and multiple 
 | **B+ (Good)** | 65-74% | Standard SnR bounce with rejection. | Reduced (0.5-1%) |
 | **B/C (Avoid)** | < 65% | Weak Storyline. Output **HOLD**. | No Trade |
 
+IMPORTANT: Use the full 0-100 confidence scale honestly. Do not default to 80% or any fixed band unless the evidence truly supports it.
+
 ---
 🔒 🇲🇾 MALAYSIAN SnR SYSTEM RULES:
 1. **LINE CHART FOCUS**: Analyze price using **Body Connections**. SnR levels are formed at Candle Close/Open connections.
@@ -401,7 +438,9 @@ Trader Profile: 14+ Year Veteran focusing on tight SL (30-50 pips) and multiple 
 
 🎯 Decision Logic:
 - **ALWAYS** check the "Storyline" first.
-- **MENTOR TIP**: Explain the "Shape" and why it's a valid region. Use phrases like "Wait for rejection" or "Sell in this region".
+- **MENTOR TIP**: Explain the "Shape" and why it's a valid region. Use phrases like "Wait for rejection" and "trade only after confirmation".
+- **CONFIDENCE DISCIPLINE**: Base confidence on how many independent confluences align. Use lower values when evidence is mixed, and only exceed 80% when the setup is genuinely exceptional.
+- **DIRECTIONAL DISCIPLINE**: Evaluate BOTH bullish and bearish cases before choosing a direction. If confluence is mixed or weak, output HOLD.
 
 💬 Message Format (REQUIRED):
 SIGNAL: [STRONG_BUY|BUY|HOLD|SELL|STRONG_SELL]
@@ -419,7 +458,7 @@ MARKET WATCH: [Specific 1-sentence lower timeframe trigger to watch for]
 PROFESSIONAL RECOMMENDATION: [Clear 1-sentence entry instruction + BE rule]
 
 ---
-Act exactly according to this prompt. Be extremely concise. Your response must be educational but brief enough for Telegram (Max 150 words total).`;
+Act exactly according to this prompt. Prioritize professional risk management, selectivity, and capital preservation. Be concise and suitable for Telegram (Max 170 words total).`;
   }
 
 
@@ -554,7 +593,7 @@ Act exactly according to this prompt. Be extremely concise. Your response must b
   // 5. AI PROMPT BUILDER
   // ----------------------------------------------------------------------
 
-  async buildProfessionalTradingPrompt(marketData, timeframe, userContext, preValidation, balanceCategory) {
+  async buildProfessionalTradingPrompt(marketData, timeframe, userContext, preValidation, balanceCategory, modelPlan = null) {
     const timeframes = {
       '5m': '5-minute (Scalping)', '15m': '15-minute (Short-term)',
       '1h': '1-hour (Intraday)', '4h': '4-hour (Swing)', '1d': 'Daily (Position)'
@@ -575,6 +614,15 @@ Act exactly according to this prompt. Be extremely concise. Your response must b
     const validationInfo = preValidation ? `
 PRE - VALIDATION RESULTS(From User's Code): - Overall Score: ${preValidation.confirmationScore?.toFixed(1) || 'N / A'}/10 - Should Proceed: ${preValidation.shouldProceed ? 'YES' : 'NO'} - Primary Reason: ${preValidation.reason}` : 'PRE - VALIDATION: Not available';
 
+    const modelInfo = modelPlan ? `
+  MODEL OUTPUT (Use as primary decision anchor):
+  - Recommendation: ${modelPlan.recommendation}
+  - Directional Bias: ${modelPlan.direction}
+  - Edge Probability: ${(Number(modelPlan.edgeProbability || 0) * 100).toFixed(1)}%
+  - Regime: ${modelPlan.regime}
+  - Risk Plan: SL ${modelPlan.riskPlan?.minSlPips || 30}-${modelPlan.riskPlan?.maxSlPips || 80} pips, RR options ${(modelPlan.riskPlan?.rrOptions || [1, 2, 3, 5]).map(v => `1:${v}`).join(', ')}, selected 1:${modelPlan.riskPlan?.primaryRr || 2}
+  ` : 'MODEL OUTPUT: Not available';
+
     return `
     Analyze the following market data for the ${timeframes[timeframe] || timeframe} timeframe.
     You MUST apply the logic for **${strategyID}** from your system instructions.
@@ -584,6 +632,10 @@ PRE - VALIDATION RESULTS(From User's Code): - Overall Score: ${preValidation.con
     ---
     YOUR PRE-VALIDATION LOGIC (Respect this):
     ${validationInfo}
+    ---
+    MODEL-DIRECTIVE (STRICT):
+    ${modelInfo}
+    If model recommendation is HOLD, keep HOLD unless there is exceptional confluence clearly supported by market structure.
     (If "Should Proceed: NO", your task is to find a counter-trade or a CAUTIOUS setup that aligns with the chosen strategy).
     ---
     CURRENT MARKET DATA (USE THIS EXCLUSIVELY):
@@ -596,9 +648,11 @@ PRE - VALIDATION RESULTS(From User's Code): - Overall Score: ${preValidation.con
     - High-Impact News: ${marketData.news?.marketSummary?.highImpactNews || 0} articles - USD Strength: ${marketData.news?.usdAnalysis?.strength || 'Stable'}
     - Gold Impact: ${marketData.news?.usdAnalysis?.impactOnGold?.impact || 'Neutral impact'}
     ---
-    🎯 **TASK:** Apply the logic of the **${strategyID}** Strategy ID to the PROVIDED data and **GENERATE A BUY OR SELL SIGNAL.**
-    🎯 **REQUIRED OUTPUT:** Provide your final decision (BUY, SELL) in the strict format:
-    SIGNAL: [BUY|SELL|STRONG_BUY|STRONG_SELL]
+    🎯 **TASK:** Apply the logic of the **${strategyID}** Strategy ID to the PROVIDED data and decide if there is a professional-quality setup.
+    Choose BUY/SELL only when confluence is clear. Otherwise return HOLD.
+    Evaluate BOTH bullish and bearish cases before final direction.
+    🎯 **REQUIRED OUTPUT:** Provide your final decision in the strict format:
+    SIGNAL: [BUY|SELL|HOLD|STRONG_BUY|STRONG_SELL]
     CONFIDENCE: [0-100]%
     STRATEGY GRADE: [A+|A|B+|B|C]
     ENTRY: [Price]
@@ -618,7 +672,7 @@ PRE - VALIDATION RESULTS(From User's Code): - Overall Score: ${preValidation.con
   // 6. CORE PARSING AND FALLBACKS
   // ----------------------------------------------------------------------
 
-  parseProfessionalSignal(analysis, marketData, timeframe, userContext, source = 'multi_ai') {
+  parseProfessionalSignal(analysis, marketData, timeframe, userContext, source = 'multi_ai', preValidation = null, modelPlan = null, dailyRisk = null) {
     const fallbackPrice = marketData.goldPrice?.price;
 
     const signalMatch = analysis.match(/(?:SIGNAL|TRADING DECISION):\s*(STRONG_BUY|BUY|HOLD|SELL|STRONG_SELL)/i);
@@ -681,6 +735,45 @@ PRE - VALIDATION RESULTS(From User's Code): - Overall Score: ${preValidation.con
         normalized: normalizedLevels.normalized,
         reasons: normalizedLevels.reasons
       };
+
+      const enforced = this.enforceRiskPlanFromModel(signal, entry, {
+        stopLoss,
+        takeProfit1,
+        takeProfit2,
+        takeProfit3,
+        takeProfit4
+      }, modelPlan);
+
+      stopLoss = enforced.stopLoss;
+      takeProfit1 = enforced.takeProfit1;
+      takeProfit2 = enforced.takeProfit2;
+      takeProfit3 = enforced.takeProfit3;
+      takeProfit4 = enforced.takeProfit4;
+
+      if (enforced.enforced) {
+        levelNormalization.normalized = true;
+        levelNormalization.reasons = [...levelNormalization.reasons, ...enforced.reasons];
+      }
+    }
+
+    const directionalBias = this.deriveDirectionalBias(marketData);
+    const guardResult = this.applyDirectionalGuards({ signal, confidence, strategyGrade }, directionalBias);
+    signal = guardResult.signal;
+    confidence = guardResult.confidence;
+
+    const aiConfidence = confidence;
+    const qualityConfidence = this.calculateSignalQuality(
+      { confidence: aiConfidence, entry, stopLoss, takeProfit1, signal },
+      preValidation
+    );
+    confidence = qualityConfidence;
+
+    if (signal === 'HOLD') {
+      stopLoss = 0;
+      takeProfit1 = 0;
+      takeProfit2 = 0;
+      takeProfit3 = 0;
+      takeProfit4 = 0;
     }
 
     const positionSizing = this.calculatePositionSizing(userContext, entry, stopLoss);
@@ -691,7 +784,9 @@ PRE - VALIDATION RESULTS(From User's Code): - Overall Score: ${preValidation.con
       updatedRecommendation += "\n\n💡 MENTOR TIP: Move Stop Loss to Entry (BE) once Take Profit 1 is reached.";
     }
 
-    const finalRiskManagement = `Risk/Reward: 1:1 (TP1) & 1:2 (TP2) | Position: ${positionSizing.lots} lots | Max Risk: ${positionSizing.riskPercent} (${positionSizing.riskAmount})`;
+    const selectedRr = Number(modelPlan?.riskPlan?.primaryRr || 2);
+    const rrOptions = (modelPlan?.riskPlan?.rrOptions || [1, 2, 3, 5]).map(v => `1:${v}`).join(', ');
+    const finalRiskManagement = `Risk/Reward: Selected 1:${selectedRr} | Allowed: ${rrOptions} | Position: ${positionSizing.lots} lots | Max Risk: ${positionSizing.riskPercent} (${positionSizing.riskAmount})`;
 
     return {
       signal: signal, confidence: confidence, timeframe: timeframe, entry: entry, stopLoss: stopLoss,
@@ -703,7 +798,14 @@ PRE - VALIDATION RESULTS(From User's Code): - Overall Score: ${preValidation.con
       riskManagement: finalRiskManagement, professionalRecommendation: updatedRecommendation,
       positionSizing: positionSizing, fullAnalysis: analysis, timestamp: new Date().toISOString(), source: source,
       userContext: userContext, riskRewardRatio: "Multi-TP / Scaling",
-      levelNormalization
+      selectedRr,
+      levelNormalization,
+      directionalBias,
+      directionGuard: guardResult,
+      modelPlan,
+      dailyRisk,
+      aiConfidence,
+      qualityConfidence
     };
   }
 
@@ -808,15 +910,93 @@ PRE - VALIDATION RESULTS(From User's Code): - Overall Score: ${preValidation.con
 
   calculateSignalQuality(aiSignal, preAnalysis) {
     try {
-      const baseConfidence = (aiSignal.confidence || 50) / 100;
-      const validationScore = (preAnalysis.confirmationScore || 5) / 10;
+      const baseConfidence = Math.max(0, Math.min(100, Number(aiSignal.confidence || 50))) / 100;
+      const validationScore = Math.max(0, Math.min(10, Number(preAnalysis?.confirmationScore || 5))) / 10;
       const riskReward = this.calculateRiskRewardRatio(aiSignal.entry, aiSignal.stopLoss, aiSignal.takeProfit1);
 
-      const quality = (baseConfidence * 0.4) + (validationScore * 0.4) + (riskReward.score * 0.2);
-      return Math.round(quality * 10);
+      const signalBias = String(aiSignal.signal || '').toUpperCase().includes('HOLD') ? 0.35 : 1;
+      const quality = ((baseConfidence * 0.35) + (validationScore * 0.35) + (riskReward.score * 0.30)) * signalBias;
+      return Math.max(0, Math.min(100, Math.round(quality * 100)));
     } catch (error) {
-      return 5;
+      return 50;
     }
+  }
+
+  deriveDirectionalBias(marketData) {
+    const predictions = marketData?.goldPrice?.predictions || {};
+    const momentum = Number(marketData?.goldPrice?.changePercent || 0);
+    const sentiment = String(marketData?.news?.overallSentiment || '').toLowerCase();
+    const usdStrength = String(marketData?.news?.usdAnalysis?.strength || '').toLowerCase();
+
+    let bullish = 0;
+    let bearish = 0;
+
+    const vote = (direction) => {
+      const d = String(direction || '').toLowerCase();
+      if (d.includes('bull')) bullish += 1;
+      if (d.includes('bear')) bearish += 1;
+    };
+
+    vote(predictions?.shortTerm?.direction);
+    vote(predictions?.mediumTerm?.direction);
+    vote(predictions?.longTerm?.direction);
+
+    if (momentum >= 0.15) bullish += 1;
+    if (momentum <= -0.15) bearish += 1;
+
+    if (sentiment.includes('bull')) bullish += 1;
+    if (sentiment.includes('bear')) bearish += 1;
+
+    // Gold typically weakens with strong USD and strengthens with weak USD.
+    if (usdStrength.includes('strong')) bearish += 1;
+    if (usdStrength.includes('weak')) bullish += 1;
+
+    const delta = bullish - bearish;
+    const direction = delta >= 2 ? 'bullish' : delta <= -2 ? 'bearish' : 'neutral';
+
+    return {
+      direction,
+      bullishVotes: bullish,
+      bearishVotes: bearish,
+      delta
+    };
+  }
+
+  applyDirectionalGuards(signalMeta, directionalBias) {
+    let signal = String(signalMeta?.signal || 'HOLD').toUpperCase();
+    let confidence = Number(signalMeta?.confidence || 0);
+    const grade = String(signalMeta?.strategyGrade || 'N/A').toUpperCase();
+    const reasons = [];
+
+    if (signal.startsWith('STRONG_') && (confidence < 82 || !['A+', 'A'].includes(grade))) {
+      signal = signal.replace('STRONG_', '');
+      reasons.push('strong_signal_downgraded');
+    }
+
+    if (signal.includes('BUY') && directionalBias.direction === 'bearish' && confidence < 78) {
+      signal = 'HOLD';
+      confidence = Math.min(confidence, 58);
+      reasons.push('buy_conflicts_with_market_bias');
+    }
+
+    if (signal.includes('SELL') && directionalBias.direction === 'bullish' && confidence < 78) {
+      signal = 'HOLD';
+      confidence = Math.min(confidence, 58);
+      reasons.push('sell_conflicts_with_market_bias');
+    }
+
+    if (directionalBias.direction === 'neutral' && signal !== 'HOLD' && confidence < 72) {
+      signal = 'HOLD';
+      confidence = Math.min(confidence, 55);
+      reasons.push('neutral_bias_requires_stronger_confluence');
+    }
+
+    return {
+      signal,
+      confidence,
+      reasons,
+      applied: reasons.length > 0
+    };
   }
   calculateRiskRewardRatio(entry, stopLoss, takeProfit) {
     const risk = Math.abs((entry || 0) - (stopLoss || 0));
@@ -832,18 +1012,18 @@ PRE - VALIDATION RESULTS(From User's Code): - Overall Score: ${preValidation.con
     const reasons = [];
 
     const defaults = {
-      stopLoss: isBuy ? entry - (40 * pipMultiplier) : entry + (40 * pipMultiplier),
-      takeProfit1: isBuy ? entry + (30 * pipMultiplier) : entry - (30 * pipMultiplier),
-      takeProfit2: isBuy ? entry + (50 * pipMultiplier) : entry - (50 * pipMultiplier),
-      takeProfit3: isBuy ? entry + (100 * pipMultiplier) : entry - (100 * pipMultiplier),
-      takeProfit4: isBuy ? entry + (150 * pipMultiplier) : entry - (150 * pipMultiplier)
+      stopLoss: isBuy ? entry - (45 * pipMultiplier) : entry + (45 * pipMultiplier),
+      takeProfit1: isBuy ? entry + (45 * pipMultiplier) : entry - (45 * pipMultiplier),
+      takeProfit2: isBuy ? entry + (90 * pipMultiplier) : entry - (90 * pipMultiplier),
+      takeProfit3: isBuy ? entry + (135 * pipMultiplier) : entry - (135 * pipMultiplier),
+      takeProfit4: isBuy ? entry + (225 * pipMultiplier) : entry - (225 * pipMultiplier)
     };
 
     const isDirectional = (price) => isBuy ? price > entry : price < entry;
 
     let stopLoss = levels.stopLoss;
     const slDistance = Math.abs(entry - stopLoss);
-    if (!stopLoss || slDistance < (30 * pipMultiplier) || slDistance > (50 * pipMultiplier)) {
+    if (!stopLoss || slDistance < (30 * pipMultiplier) || slDistance > (80 * pipMultiplier)) {
       stopLoss = defaults.stopLoss;
       reasons.push('sl_out_of_range');
     }
@@ -882,6 +1062,68 @@ PRE - VALIDATION RESULTS(From User's Code): - Overall Score: ${preValidation.con
       takeProfit4,
       normalized: reasons.length > 0,
       reasons
+    };
+  }
+
+  enforceRiskPlanFromModel(signal, entry, levels, modelPlan) {
+    const isBuy = signal.includes('BUY');
+    const pip = 0.10;
+    const reasons = [];
+
+    const slPips = Number(modelPlan?.riskPlan?.slPips || 45);
+    const rrPrimary = Number(modelPlan?.riskPlan?.primaryRr || 2);
+
+    const appliedSlPips = Math.max(30, Math.min(80, slPips));
+    const maxTpPips = Number(modelPlan?.riskPlan?.tpMaxPips || 300);
+
+    const targetDistances = [
+      appliedSlPips * 1,
+      appliedSlPips * Math.max(2, rrPrimary),
+      appliedSlPips * Math.max(3, rrPrimary),
+      Math.min(maxTpPips, appliedSlPips * Math.max(5, rrPrimary))
+    ];
+
+    const directionMul = isBuy ? 1 : -1;
+    const fallbackSl = entry + (directionMul * -1 * appliedSlPips * pip);
+    const fallbackTp = targetDistances.map(d => entry + (directionMul * d * pip));
+
+    const currSlPips = Math.abs(Number(entry) - Number(levels.stopLoss)) / pip;
+    let stopLoss = Number(levels.stopLoss);
+    let takeProfit1 = Number(levels.takeProfit1);
+    let takeProfit2 = Number(levels.takeProfit2);
+    let takeProfit3 = Number(levels.takeProfit3);
+    let takeProfit4 = Number(levels.takeProfit4);
+
+    if (!Number.isFinite(currSlPips) || currSlPips < 30 || currSlPips > 80) {
+      stopLoss = fallbackSl;
+      reasons.push('model_sl_enforced');
+    }
+
+    const sanitizeTp = (tp, idx) => {
+      if (!Number.isFinite(tp)) return fallbackTp[idx];
+      const distPips = Math.abs(tp - entry) / pip;
+      if (distPips < targetDistances[idx] * 0.6 || distPips > maxTpPips + 10) {
+        reasons.push(`model_tp${idx + 1}_enforced`);
+        return fallbackTp[idx];
+      }
+      return tp;
+    };
+
+    takeProfit1 = sanitizeTp(takeProfit1, 0);
+    takeProfit2 = sanitizeTp(takeProfit2, 1);
+    takeProfit3 = sanitizeTp(takeProfit3, 2);
+    takeProfit4 = sanitizeTp(takeProfit4, 3);
+
+    return {
+      stopLoss,
+      takeProfit1,
+      takeProfit2,
+      takeProfit3,
+      takeProfit4,
+      enforced: reasons.length > 0,
+      reasons,
+      rrPrimary,
+      slPips: appliedSlPips
     };
   }
 

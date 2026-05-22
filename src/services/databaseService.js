@@ -173,6 +173,37 @@ class DatabaseService {
     };
   }
 
+  async getDailyRiskSnapshot() {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const snapshot = await db.collection(SIGNAL_COLLECTION)
+      .where('createdAt', '>=', todayStart.toISOString())
+      .orderBy('createdAt', 'desc')
+      .limit(300)
+      .get();
+
+    const signals = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    let dailyPnl = 0;
+    let hasPnlData = false;
+
+    signals.forEach(signal => {
+      const pnl = Number(signal.pnlUsd);
+      if (Number.isFinite(pnl)) {
+        dailyPnl += pnl;
+        hasPnlData = true;
+      }
+    });
+
+    return {
+      date: todayStart.toISOString(),
+      signalsCount: signals.length,
+      dailyPnl: Number(dailyPnl.toFixed(2)),
+      hasPnlData
+    };
+  }
+
   // --- SYSTEM CONFIG METHODS ---
 
   async getSystemConfig() {

@@ -62,7 +62,7 @@ class GoldPriceService {
         console.log('❌ ALL paid APIs failed! Cannot fetch real price.');
         throw new Error('Gold Price Service Unavailable (All APIs failed)');
       } else {
-        // Enhance the successful API data
+        // Enhance successful API data with evidence-based context only.
         priceData = await this.enhanceWithPredictions(priceData);
       }
 
@@ -229,15 +229,15 @@ class GoldPriceService {
     console.log('🟡 Enhancing price data with analysis...');
 
     const marketAnalysis = await this.analyzeMarketCondition(priceData);
-    const predictions = await this.generatePricePredictions(priceData, marketAnalysis);
+    const mtfBias = this.buildEvidenceBasedMtfBias(priceData, marketAnalysis);
 
     return {
       ...priceData,
       marketCondition: marketAnalysis,
-      predictions: predictions,
+      predictions: mtfBias,
       volatility: this.calculateVolatility(priceData),
       trend: this.analyzeTrend(priceData),
-      tradingRecommendation: this.getTradingRecommendation(marketAnalysis, predictions)
+      tradingRecommendation: this.getTradingRecommendation(marketAnalysis, mtfBias)
     };
   }
 
@@ -276,37 +276,34 @@ class GoldPriceService {
     };
   }
 
-  async generatePricePredictions(priceData, marketAnalysis) {
-    const currentPrice = priceData.price;
-    const volatility = marketAnalysis.volatility;
-    const momentum = marketAnalysis.momentum;
+  buildEvidenceBasedMtfBias(priceData, marketAnalysis) {
+    const momentum = Number(marketAnalysis?.momentum || 0);
+    const volatility = Number(marketAnalysis?.volatility || 0);
 
-    const shortTermFactor = 1 + (momentum / 100) + (volatility * 0.5 * (momentum >= 0 ? 1 : -1));
-    const mediumTermFactor = 1 + (momentum / 100) * 3 + (volatility * 1.2 * (momentum >= 0 ? 1 : -1));
-    const longTermFactor = 1 + (momentum / 100) * 10 + (volatility * 2 * (momentum >= 0 ? 1 : -1));
+    const classifyDirection = (threshold) => {
+      if (momentum >= threshold) return 'bullish';
+      if (momentum <= -threshold) return 'bearish';
+      return 'neutral';
+    };
+
+    const confidenceFromThreshold = (threshold) => {
+      const edge = Math.max(0, Math.abs(momentum) - threshold);
+      const raw = 52 + (edge * 9) - (volatility * 150);
+      return Math.max(45, Math.min(78, Math.round(raw)));
+    };
+
+    const buildBias = (timeframe, threshold, factors) => ({
+      timeframe,
+      predictedPrice: null,
+      confidence: confidenceFromThreshold(threshold),
+      direction: classifyDirection(threshold),
+      factors
+    });
 
     return {
-      shortTerm: {
-        timeframe: '5_hours',
-        predictedPrice: parseFloat((currentPrice * shortTermFactor).toFixed(2)),
-        confidence: Math.max(60, 80 - Math.abs(momentum) * 10),
-        direction: momentum >= 0 ? 'bullish' : 'bearish',
-        factors: ['current_momentum', 'intraday_volatility', 'session_analysis']
-      },
-      mediumTerm: {
-        timeframe: '24_hours',
-        predictedPrice: parseFloat((currentPrice * mediumTermFactor).toFixed(2)),
-        confidence: Math.max(50, 70 - Math.abs(momentum) * 8),
-        direction: momentum >= 0 ? 'bullish' : 'bearish',
-        factors: ['daily_trend', 'technical_levels', 'market_sentiment']
-      },
-      longTerm: {
-        timeframe: '1_week',
-        predictedPrice: parseFloat((currentPrice * longTermFactor).toFixed(2)),
-        confidence: Math.max(40, 60 - Math.abs(momentum) * 6),
-        direction: momentum >= 0 ? 'bullish' : 'bearish',
-        factors: ['weekly_trend', 'fundamental_analysis', 'economic_outlook']
-      }
+      shortTerm: buildBias('5_hours', 0.15, ['spot_momentum', 'intraday_range', 'session_flow']),
+      mediumTerm: buildBias('24_hours', 0.35, ['daily_momentum', 'range_location', 'usd_gold_relationship']),
+      longTerm: buildBias('1_week', 0.60, ['weekly_directional_pressure', 'macro_sentiment', 'trend_persistence'])
     };
   }
 
